@@ -1,6 +1,9 @@
 package com.diamond.gdmusic.ui.screens
 
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,13 +29,17 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Tab
@@ -67,11 +74,17 @@ fun NeteasePlaylistScreen(
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
+    onImportPlaylist: (
+        NeteasePlaylist,
+        List<Track>,
+        (Result<Unit>) -> Unit
+    ) -> Unit,
     onSearchArtist: (String, String) -> Unit,
     onSearchAlbum: (String, String) -> Unit
 ) {
     val context = LocalContext.current
     val repository = remember { NeteasePlaylistRepository() }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
     var savedUserId by rememberSaveable {
         mutableStateOf(NeteasePlaylistCache.savedUserId(context))
@@ -89,6 +102,7 @@ fun NeteasePlaylistScreen(
     var trackError by remember { mutableStateOf<String?>(null) }
     var detailRequestVersion by remember { mutableIntStateOf(0) }
     var selectedSection by rememberSaveable { mutableIntStateOf(SECTION_CREATED) }
+    var morePlaylist by remember { mutableStateOf<NeteasePlaylist?>(null) }
 
     fun closePlaylistDetail() {
         detailRequestVersion++
@@ -191,6 +205,7 @@ fun NeteasePlaylistScreen(
             onPlayNext = onPlayNext,
             onAddToPlaylist = onAddToPlaylist,
             onFavorite = onFavorite,
+            onImportPlaylist = onImportPlaylist,
             onSearchArtist = onSearchArtist,
             onSearchAlbum = onSearchAlbum
         )
@@ -276,7 +291,11 @@ fun NeteasePlaylistScreen(
             }
 
             items(visiblePlaylists, key = { it.id }) { playlist ->
-                PlaylistCard(playlist, onClick = { selectedPlaylist = playlist })
+                PlaylistCard(
+                    playlist = playlist,
+                    onClick = { selectedPlaylist = playlist },
+                    onMore = { morePlaylist = playlist }
+                )
             }
 
             fullWidthItem {
@@ -297,6 +316,30 @@ fun NeteasePlaylistScreen(
             }
         }
     }
+
+    morePlaylist?.let { playlist ->
+        NeteasePlaylistMoreSheet(
+            playlist = playlist,
+            onDismiss = { morePlaylist = null },
+            onImport = { callback ->
+                repository.loadPlaylistTracks(playlist.id) { loadResult ->
+                    mainHandler.post {
+                        loadResult.onSuccess { tracks ->
+                            if (tracks.isEmpty()) {
+                                callback(Result.failure(
+                                    IllegalStateException("歌单中没有可收藏的歌曲")
+                                ))
+                            } else {
+                                onImportPlaylist(playlist, tracks, callback)
+                            }
+                        }.onFailure { error ->
+                            callback(Result.failure(error))
+                        }
+                    }
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -311,10 +354,16 @@ private fun PlaylistDetail(
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
+    onImportPlaylist: (
+        NeteasePlaylist,
+        List<Track>,
+        (Result<Unit>) -> Unit
+    ) -> Unit,
     onSearchArtist: (String, String) -> Unit,
     onSearchAlbum: (String, String) -> Unit
 ) {
     var moreTrack by remember { mutableStateOf<Track?>(null) }
+    var showPlaylistMore by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -329,6 +378,9 @@ private fun PlaylistDetail(
                 Icon(Icons.Default.ArrowBack, contentDescription = "返回网易云歌单")
             }
             Spacer(Modifier.weight(1f))
+            IconButton(onClick = { showPlaylistMore = true }) {
+                Icon(Icons.Default.MoreVert, contentDescription = "歌单更多")
+            }
         }
 
         LazyColumn(
@@ -457,6 +509,24 @@ private fun PlaylistDetail(
             onSearchAlbum = { album -> onSearchAlbum(album, track.source) }
         )
     }
+
+    if (showPlaylistMore) {
+        NeteasePlaylistMoreSheet(
+            playlist = playlist,
+            onDismiss = { showPlaylistMore = false },
+            onImport = { callback ->
+                if (isLoading) {
+                    callback(Result.failure(IllegalStateException("歌单仍在加载中")))
+                } else if (errorMessage != null) {
+                    callback(Result.failure(IllegalStateException(errorMessage)))
+                } else if (tracks.isEmpty()) {
+                    callback(Result.failure(IllegalStateException("歌单中没有可收藏的歌曲")))
+                } else {
+                    onImportPlaylist(playlist, tracks, callback)
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -515,7 +585,8 @@ private fun LazyGridScope.fullWidthItem(content: @Composable () -> Unit) {
 @Composable
 private fun PlaylistCard(
     playlist: NeteasePlaylist,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onMore: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -535,11 +606,64 @@ private fun PlaylistCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 6.dp, top = 6.dp, end = 6.dp)
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${playlist.trackCount} 首",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 6.dp, top = 2.dp, bottom = 6.dp)
+                )
+                IconButton(onClick = onMore, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "歌单更多")
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NeteasePlaylistMoreSheet(
+    playlist: NeteasePlaylist,
+    onDismiss: () -> Unit,
+    onImport: ((Result<Unit>) -> Unit) -> Unit
+) {
+    var importing by remember(playlist.id) { mutableStateOf(false) }
+    var message by remember(playlist.id) { mutableStateOf<String?>(null) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
             Text(
-                text = "${playlist.trackCount} 首",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 6.dp, top = 2.dp, bottom = 6.dp)
+                text = playlist.name,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+            )
+            ListItem(
+                headlineContent = {
+                    Text(if (importing) "正在添加…" else "将歌单添加到收藏")
+                },
+                supportingContent = message?.let { value -> { Text(value) } },
+                leadingContent = {
+                    if (importing) {
+                        CircularProgressIndicator(Modifier.size(24.dp))
+                    } else {
+                        Icon(Icons.Default.PlaylistAdd, contentDescription = null)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().clickable(enabled = !importing) {
+                    importing = true
+                    message = null
+                    onImport { result ->
+                        importing = false
+                        result.onSuccess {
+                            message = "歌单已添加到收藏"
+                        }.onFailure { error ->
+                            message = error.message ?: "添加失败"
+                        }
+                    }
+                }
             )
         }
     }

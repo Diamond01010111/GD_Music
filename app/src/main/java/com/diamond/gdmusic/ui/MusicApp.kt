@@ -77,6 +77,7 @@ fun MusicApp(
     localPlaylists: List<LocalPlaylistStore.LocalPlaylist>,
     defaultBitrate: Int,
     darkMode: Boolean,
+    showLyricTranslation: Boolean,
 
     onRequestSearch: (
         keyword: String,
@@ -102,6 +103,7 @@ fun MusicApp(
     onChangeCurrentQuality: (Track, Int, (Result<Unit>) -> Unit) -> Unit,
     onDefaultBitrateChange: (Int) -> Unit,
     onDarkModeChange: (Boolean) -> Unit,
+    onShowLyricTranslationChange: (Boolean) -> Unit,
 
     onPlayResults: (
         tracks: List<Track>,
@@ -408,6 +410,8 @@ fun MusicApp(
                     playbackProgress = playbackProgress,
                     playbackPositionMs = playbackPositionMs,
                     playbackDurationMs = playbackDurationMs,
+                    showLyricTranslation = showLyricTranslation,
+                    onShowLyricTranslationChange = onShowLyricTranslationChange,
                     onBack = { showPlayerDetail = false },
                     onPlayPause = onPlayPause,
                     onSwitchPlayMode = onSwitchPlayMode,
@@ -487,6 +491,7 @@ fun MusicApp(
                         onFavorite = { track ->
                             pendingFavoriteTrack = track
                         },
+                        onImportPlaylist = onImportNeteasePlaylist,
                         onSearchArtist = { artist, source ->
                             executeSearch(
                                 artist,

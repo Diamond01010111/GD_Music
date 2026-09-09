@@ -86,6 +86,8 @@ fun PlayerDetailScreen(
     playbackProgress: Float,
     playbackPositionMs: Long,
     playbackDurationMs: Long,
+    showLyricTranslation: Boolean,
+    onShowLyricTranslationChange: (Boolean) -> Unit,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
     onSwitchPlayMode: () -> Unit,
@@ -107,7 +109,6 @@ fun PlayerDetailScreen(
 
     var rawLyrics by remember(track.source, track.id) { mutableStateOf("") }
     var rawTranslatedLyrics by remember(track.source, track.id) { mutableStateOf("") }
-    var showTranslation by remember(track.source, track.id) { mutableStateOf(false) }
     var lyricSource by remember(track.source, track.id) { mutableStateOf<String?>(null) }
     var isLoadingLyrics by remember(track.source, track.id) { mutableStateOf(true) }
     var lyricError by remember(track.source, track.id) { mutableStateOf<String?>(null) }
@@ -154,9 +155,6 @@ fun PlayerDetailScreen(
         alignTranslations(lyricLines, translatedLines)
     }
     val hasTranslation = translations.any { !it.isNullOrBlank() }
-    LaunchedEffect(hasTranslation) {
-        if (!hasTranslation) showTranslation = false
-    }
     val currentLyricIndex = remember(lyricLines, playbackPositionMs) {
         lyricLines.indexOfLast { line ->
             line.timeMs != null && line.timeMs <= playbackPositionMs
@@ -204,9 +202,11 @@ fun PlayerDetailScreen(
         LyricsPanel(
             lines = lyricLines,
             translations = translations,
-            showTranslation = showTranslation,
+            showTranslation = showLyricTranslation && hasTranslation,
             hasTranslation = hasTranslation,
-            onToggleTranslation = { showTranslation = !showTranslation },
+            onToggleTranslation = {
+                onShowLyricTranslationChange(!showLyricTranslation)
+            },
             currentIndex = currentLyricIndex,
             isLoading = isLoadingLyrics,
             errorMessage = lyricError,
@@ -410,14 +410,7 @@ private fun TranslationToggleButton(
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.background(
-            color = if (checked && enabled) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f)
-            },
-            shape = CircleShape
-        )
+        modifier = modifier
     ) {
         Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
             Icon(

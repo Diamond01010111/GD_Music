@@ -2,6 +2,7 @@ package com.diamond.gdmusic
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -60,6 +61,9 @@ class ComposeMainActivity : ComponentActivity() {
             var defaultBitrate by remember {
                 mutableStateOf(PlaybackPreferences.defaultBitrate(this))
             }
+            var showLyricTranslation by remember {
+                mutableStateOf(PlaybackPreferences.showLyricTranslation(this))
+            }
             MaterialTheme(
                 colorScheme = if (darkMode) darkColorScheme() else lightColorScheme()
             ) {
@@ -76,6 +80,18 @@ class ComposeMainActivity : ComponentActivity() {
                 var playbackDurationMs by remember { mutableStateOf(0L) }
                 var localPlaylists by remember {
                     mutableStateOf(localPlaylistStore.playlists)
+                }
+
+                DisposableEffect(Unit) {
+                    val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+                        runOnUiThread {
+                            localPlaylists = localPlaylistStore.playlists
+                        }
+                    }
+                    localPlaylistStore.registerOnChangeListener(listener)
+                    onDispose {
+                        localPlaylistStore.unregisterOnChangeListener(listener)
+                    }
                 }
 
                 fun syncPlayerState() {
@@ -167,6 +183,7 @@ class ComposeMainActivity : ComponentActivity() {
                     localPlaylists = localPlaylists,
                     defaultBitrate = defaultBitrate,
                     darkMode = darkMode,
+                    showLyricTranslation = showLyricTranslation,
 
                     onRequestSearch = { keyword, category, source, page, callback ->
                         requestTracks(keyword, category, source, page, callback)
@@ -193,6 +210,10 @@ class ComposeMainActivity : ComponentActivity() {
                     onDarkModeChange = { enabled ->
                         PlaybackPreferences.setDarkMode(this, enabled)
                         darkMode = enabled
+                    },
+                    onShowLyricTranslationChange = { enabled ->
+                        PlaybackPreferences.setShowLyricTranslation(this, enabled)
+                        showLyricTranslation = enabled
                     },
 
                     onPlayResults = ::playTracks,
