@@ -16,6 +16,7 @@ public class LocalPlaylistStore {
     private static final String KEY_PLAYLISTS = "playlists";
     private static final String KEY_FAVORITES = "favorites";
     private static final String LEGACY_PLAYLIST_NAME = "我的收藏";
+    public static final String LIKED_PLAYLIST_NAME = "我喜欢的";
 
     private final SharedPreferences preferences;
 
@@ -65,6 +66,7 @@ public class LocalPlaylistStore {
             exception.printStackTrace();
         }
 
+        moveLikedPlaylistFirst(playlists);
         return playlists;
     }
 
@@ -82,7 +84,11 @@ public class LocalPlaylistStore {
                 new ArrayList<>()
         );
 
-        playlists.add(playlist);
+        if (LIKED_PLAYLIST_NAME.equals(normalizedName)) {
+            playlists.add(0, playlist);
+        } else {
+            playlists.add(playlist);
+        }
         savePlaylists(playlists);
         return playlist;
     }
@@ -242,6 +248,64 @@ public class LocalPlaylistStore {
         return new ArrayList<>();
     }
 
+    /** Adds a track to the pinned notification favorite collection. */
+    public boolean addToLiked(Track track) {
+        if (track == null || !isValidTrack(track)) {
+            return false;
+        }
+
+        List<LocalPlaylist> playlists = getPlaylists();
+        LocalPlaylist liked = null;
+        for (LocalPlaylist playlist : playlists) {
+            if (LIKED_PLAYLIST_NAME.equals(playlist.name)) {
+                liked = playlist;
+                break;
+            }
+        }
+
+        boolean added = false;
+        if (liked == null) {
+            liked = new LocalPlaylist(
+                    UUID.randomUUID().toString(),
+                    LIKED_PLAYLIST_NAME,
+                    new ArrayList<>()
+            );
+            playlists.add(0, liked);
+        }
+        if (!containsTrack(liked.tracks, track)) {
+            liked.tracks.add(track);
+            added = true;
+        }
+
+        moveLikedPlaylistFirst(playlists);
+        savePlaylists(playlists);
+        return added;
+    }
+
+    public boolean isLiked(Track track) {
+        if (track == null) {
+            return false;
+        }
+        for (LocalPlaylist playlist : getPlaylists()) {
+            if (LIKED_PLAYLIST_NAME.equals(playlist.name)) {
+                return containsTrack(playlist.tracks, track);
+            }
+        }
+        return false;
+    }
+
+    public void registerOnChangeListener(
+            SharedPreferences.OnSharedPreferenceChangeListener listener
+    ) {
+        preferences.registerOnSharedPreferenceChangeListener(listener);
+    }
+
+    public void unregisterOnChangeListener(
+            SharedPreferences.OnSharedPreferenceChangeListener listener
+    ) {
+        preferences.unregisterOnSharedPreferenceChangeListener(listener);
+    }
+
     private LocalPlaylist findPlaylist(String playlistId) {
         for (LocalPlaylist playlist : getPlaylists()) {
             if (playlist.id.equals(playlistId)) {
@@ -332,6 +396,18 @@ public class LocalPlaylistStore {
                     .apply();
         } catch (Exception exception) {
             exception.printStackTrace();
+        }
+    }
+
+    private void moveLikedPlaylistFirst(List<LocalPlaylist> playlists) {
+        for (int index = 0; index < playlists.size(); index++) {
+            if (LIKED_PLAYLIST_NAME.equals(playlists.get(index).name)) {
+                if (index > 0) {
+                    LocalPlaylist liked = playlists.remove(index);
+                    playlists.add(0, liked);
+                }
+                return;
+            }
         }
     }
 

@@ -3,6 +3,7 @@ package com.diamond.gdmusic;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.util.Log;
 import androidx.annotation.Nullable;
@@ -17,10 +18,14 @@ import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
+import androidx.media3.session.CommandButton;
 import androidx.media3.session.LibraryResult;
 import androidx.media3.session.MediaLibraryService;
 import androidx.media3.session.MediaSession;
+import androidx.media3.session.SessionCommand;
+import androidx.media3.session.SessionCommands;
 import androidx.media3.session.SessionError;
+import androidx.media3.session.SessionResult;
 
 import com.diamond.gdmusic.data.NeteasePlaylist;
 import com.diamond.gdmusic.data.NeteasePlaylistCache;
@@ -66,6 +71,10 @@ public final class AutoPlaybackService extends MediaLibraryService {
     private static final int AUTO_SEARCH_RESULT_COUNT = 30;
     private static final long AUDIO_URL_MAX_AGE_MS = 30L * 60L * 1000L;
     private static final long SOURCE_RESOLVE_TIMEOUT_SECONDS = 60L;
+    private static final SessionCommand ADD_TO_LIKED_COMMAND = new SessionCommand(
+            "com.diamond.gdapplication.command.ADD_TO_LIKED",
+            Bundle.EMPTY
+    );
 
     private ExoPlayer player;
     private MediaLibrarySession mediaLibrarySession;
@@ -106,6 +115,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                     int reason
             ) {
                 requestMissingArtwork(mediaItem);
+                updateFavoriteButton(TrackMediaItem.toTrack(mediaItem));
             }
         });
         player.setAudioAttributes(
@@ -133,6 +143,8 @@ public final class AutoPlaybackService extends MediaLibraryService {
         )
                 .setId("shared_playback")
                 .setSessionActivity(sessionActivity)
+                .setMediaButtonPreferences(favoriteButtonPreferences(null))
+                .setCustomLayout(favoriteButtonPreferences(null))
                 .build();
     }
 
@@ -215,7 +227,50 @@ public final class AutoPlaybackService extends MediaLibraryService {
                             + ", uid="
                             + controller.getUid()
             );
-            return MediaLibrarySession.Callback.super.onConnect(session, controller);
+            SessionCommands baseCommands = controller.isTrusted()
+                    ? MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
+                    : MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_AND_LIBRARY_COMMANDS;
+            SessionCommands availableCommands = baseCommands.buildUpon()
+                    .add(ADD_TO_LIKED_COMMAND)
+                    .build();
+            List<CommandButton> buttons = favoriteButtonPreferences(
+                    TrackMediaItem.toTrack(player.getCurrentMediaItem())
+            );
+            return new MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+                    .setAvailableSessionCommands(availableCommands)
+                    .setMediaButtonPreferences(buttons)
+                    .setCustomLayout(buttons)
+                    .build();
+        }
+
+        @Override
+        public ListenableFuture<SessionResult> onCustomCommand(
+                MediaSession session,
+                MediaSession.ControllerInfo controller,
+                SessionCommand customCommand,
+                Bundle args
+        ) {
+            if (!ADD_TO_LIKED_COMMAND.equals(customCommand)) {
+                return MediaLibrarySession.Callback.super.onCustomCommand(
+                        session,
+                        controller,
+                        customCommand,
+                        args
+                );
+            }
+
+            Track current = TrackMediaItem.toTrack(player.getCurrentMediaItem());
+            if (current == null) {
+                return Futures.immediateFuture(
+                        new SessionResult(SessionError.ERROR_BAD_VALUE)
+                );
+            }
+            playlistStore = new LocalPlaylistStore(getApplicationContext());
+            playlistStore.addToLiked(current);
+            updateFavoriteButton(current);
+            return Futures.immediateFuture(
+                    new SessionResult(SessionResult.RESULT_SUCCESS)
+            );
         }
 
         @Override
@@ -378,6 +433,30 @@ public final class AutoPlaybackService extends MediaLibraryService {
                     )
             );
         }
+    }
+
+    private List<CommandButton> favoriteButtonPreferences(@Nullable Track track) {
+        boolean liked = track != null && playlistStore.isLiked(track);
+        CommandButton button = new CommandButton.Builder(
+                liked ? CommandButton.ICON_HEART_FILLED : CommandButton.ICON_HEART_UNFILLED
+        )
+                .setSessionCommand(ADD_TO_LIKED_COMMAND)
+                .setDisplayName(liked ? "已加入我喜欢的" : "加入我喜欢的")
+                .setSlots(
+                        CommandButton.SLOT_FORWARD_SECONDARY,
+                        CommandButton.SLOT_OVERFLOW
+                )
+                .build();
+        return ImmutableList.of(button);
+    }
+
+    private void updateFavoriteButton(@Nullable Track track) {
+        if (mediaLibrarySession == null || destroyed) {
+            return;
+        }
+        List<CommandButton> buttons = favoriteButtonPreferences(track);
+        mediaLibrarySession.setMediaButtonPreferences(buttons);
+        mediaLibrarySession.setCustomLayout(buttons);
     }
 
     private void requestAutoSearch(

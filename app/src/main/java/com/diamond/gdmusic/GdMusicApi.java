@@ -4,6 +4,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.text.Normalizer;
 import java.util.ArrayList;
@@ -419,44 +420,47 @@ public class GdMusicApi {
                 @Override
                 public void onResponse(Call call, Response response) throws IOException {
                     try {
-                        String body = response.body() != null ? response.body().string() : "";
-
-                        if (!response.isSuccessful()) {
-                            callback.onError(new Exception(
-                                    "HTTP 错误：" + response.code()
-                                            + "\n\n返回内容：\n"
-                                            + body.substring(0, Math.min(body.length(), 300))
-                            ));
-                            return;
-                        }
-
-                        String trimmed = body.trim();
+                        String trimmed = requireSuccessfulBody(response, "搜索");
 
                         if (!trimmed.startsWith("[")) {
-                            callback.onError(new Exception(
-                                    "搜索接口没有返回 JSON 数组，可能是 API 挂了：\n\n"
-                                            + trimmed.substring(0, Math.min(trimmed.length(), 300))
-                            ));
-                            return;
+                            throw invalidResponse("搜索", "顶层数据不是 JSON 数组", trimmed);
                         }
 
                         JSONArray arr = new JSONArray(trimmed);
                         List<Track> tracks = new ArrayList<>();
 
                         for (int i = 0; i < arr.length(); i++) {
-                            JSONObject item = arr.getJSONObject(i);
+                            JSONObject item = arr.optJSONObject(i);
+                            if (item == null) {
+                                continue;
+                            }
+
+                            String id = normalizedValue(item.opt("id"));
+                            String name = normalizedValue(item.opt("name"));
+                            String artist = cleanArtist(normalizedValue(item.opt("artist")));
+                            if (!present(id) || !present(name) || !present(artist)) {
+                                continue;
+                            }
 
                             Track track = new Track(
-                                    item.getString("id"),
-                                    item.optString("source", source),
-                                    item.optString("name", "未知歌曲"),
-                                    cleanArtist(item.opt("artist").toString()),
-                                    item.optString("album", ""),
-                                    item.optString("pic_id", ""),
-                                    item.optString("lyric_id", "")
+                                    id,
+                                    validOptionalString(item, "source", source),
+                                    name,
+                                    artist,
+                                    validOptionalString(item, "album", ""),
+                                    validOptionalString(item, "pic_id", ""),
+                                    validOptionalString(item, "lyric_id", "")
                             );
 
                             tracks.add(track);
+                        }
+
+                        if (arr.length() > 0 && tracks.isEmpty()) {
+                            throw invalidResponse(
+                                    "搜索",
+                                    "歌曲条目缺少 id、name 或 artist",
+                                    trimmed
+                            );
                         }
 
                         callback.onSuccess(tracks);
@@ -513,22 +517,10 @@ public class GdMusicApi {
                 @Override
                 public void onResponse(Call call, Response response) throws IOException {
                     try {
-                        String body = response.body() != null ? response.body().string() : "";
-
-                        if (!response.isSuccessful()) {
-                            callback.onError(new Exception("HTTP 错误：" + response.code()));
-                            return;
-                        }
-
-                        JSONObject obj = parseObject(body);
-
-                        track.audioUrl = obj.optString("url", "");
-
-                        if (track.audioUrl != null
-                                && !track.audioUrl.isEmpty()
-                                && !track.audioUrl.equals("null")) {
-                            track.audioUrlCachedAt = System.currentTimeMillis();
-                        }
+                        String body = requireSuccessfulBody(response, "播放地址");
+                        JSONObject obj = parseObject(body, "播放地址");
+                        track.audioUrl = requireHttpUrl(obj, "url", "播放地址", body);
+                        track.audioUrlCachedAt = System.currentTimeMillis();
 
                         callback.onSuccess(track);
 
@@ -570,10 +562,9 @@ public class GdMusicApi {
                 @Override
                 public void onResponse(Call call, Response response) throws IOException {
                     try {
-                        String body = response.body() != null ? response.body().string() : "";
-                        JSONObject obj = parseObject(body);
-
-                        track.picUrl = obj.optString("url", "");
+                        String body = requireSuccessfulBody(response, "封面");
+                        JSONObject obj = parseObject(body, "封面");
+                        track.picUrl = requireHttpUrl(obj, "url", "封面", body);
 
                         callback.onSuccess(track);
 
@@ -614,11 +605,14 @@ public class GdMusicApi {
                 @Override
                 public void onResponse(Call call, Response response) throws IOException {
                     try {
-                        String body = response.body() != null ? response.body().string() : "";
-                        JSONObject obj = parseObject(body);
+                        String body = requireSuccessfulBody(response, "歌词");
+                        JSONObject obj = parseObject(body, "歌词");
 
-                        track.lyric = obj.optString("lyric", "");
-                        track.translatedLyric = obj.optString("tlyric", "");
+                        track.lyric = validOptionalString(obj, "lyric", "");
+                        track.translatedLyric = validOptionalString(obj, "tlyric", "");
+                        if (!present(track.lyric)) {
+                            throw invalidResponse("歌词", "缺少有效的 lyric 字段", body);
+                        }
 
                         callback.onSuccess(track);
 
@@ -633,17 +627,88 @@ public class GdMusicApi {
         }
     }
 
-    private JSONObject parseObject(String body) throws Exception {
+    private String requireSuccessfulBody(Response response, String endpoint) throws Exception {
+        String body = response.body() == null ? "" : response.body().string();
+        String trimmed = body.trim();
+        if (!response.isSuccessful()) {
+            throw invalidResponse(
+                    endpoint,
+                    "HTTP " + response.code(),
+                    trimmed
+            );
+        }
+        if (trimmed.isEmpty()) {
+            throw invalidResponse(endpoint, "返回内容为空", trimmed);
+        }
+        return trimmed;
+    }
+
+    private JSONObject parseObject(String body, String endpoint) throws Exception {
         String trimmed = body.trim();
 
         if (trimmed.startsWith("[")) {
             JSONArray arr = new JSONArray(trimmed);
             if (arr.length() == 0) {
-                return new JSONObject();
+                throw invalidResponse(endpoint, "返回数组为空", trimmed);
             }
-            return arr.getJSONObject(0);
+            JSONObject first = arr.optJSONObject(0);
+            if (first == null) {
+                throw invalidResponse(endpoint, "数组首项不是 JSON 对象", trimmed);
+            }
+            return first;
         }
-
+        if (!trimmed.startsWith("{")) {
+            throw invalidResponse(endpoint, "顶层数据不是 JSON 对象", trimmed);
+        }
         return new JSONObject(trimmed);
+    }
+
+    private String requireHttpUrl(
+            JSONObject object,
+            String key,
+            String endpoint,
+            String rawBody
+    ) throws Exception {
+        String value = validOptionalString(object, key, "").trim();
+        if (!present(value)) {
+            throw invalidResponse(endpoint, "缺少有效的 " + key + " 字段", rawBody);
+        }
+        URI uri = new URI(value);
+        String scheme = uri.getScheme();
+        if (uri.getHost() == null
+                || !("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme))) {
+            throw invalidResponse(endpoint, key + " 不是有效的 HTTP(S) 地址", rawBody);
+        }
+        return value;
+    }
+
+    private String validOptionalString(JSONObject object, String key, String fallback) {
+        Object value = object.opt(key);
+        if (value == null || value == JSONObject.NULL) {
+            return fallback;
+        }
+        if (value instanceof String || value instanceof Number) {
+            String normalized = String.valueOf(value).trim();
+            return present(normalized) ? normalized : fallback;
+        }
+        return fallback;
+    }
+
+    private String normalizedValue(Object value) {
+        if (value == null || value == JSONObject.NULL) {
+            return "";
+        }
+        return String.valueOf(value).trim();
+    }
+
+    private Exception invalidResponse(String endpoint, String reason, String body) {
+        String preview = body == null ? "" : body.trim();
+        if (preview.length() > 300) {
+            preview = preview.substring(0, 300);
+        }
+        return new Exception(
+                endpoint + "接口返回格式无效：" + reason
+                        + (preview.isEmpty() ? "" : "\n\n返回内容：\n" + preview)
+        );
     }
 }
