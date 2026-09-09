@@ -8,10 +8,12 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -66,6 +68,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -161,81 +165,101 @@ fun PlayerDetailScreen(
         }.coerceAtLeast(0)
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val useTwoPaneLayout = maxWidth > maxHeight
+        val wideArtworkSize = (maxHeight * 0.28f).coerceIn(88.dp, 180.dp)
+
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                }
+                Text("歌曲详情", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.weight(1f))
+                IconButton(onClick = { showMore = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                }
             }
-            Text("歌曲详情", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = { showMore = true }) {
-                Icon(Icons.Default.MoreVert, contentDescription = "更多")
+
+            if (useTwoPaneLayout) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) {
+                    TrackIdentity(
+                        track = track,
+                        artworkUrl = artworkUrl,
+                        artworkSize = wideArtworkSize,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                    LyricsPanel(
+                        lines = lyricLines,
+                        translations = translations,
+                        showTranslation = showLyricTranslation && hasTranslation,
+                        hasTranslation = hasTranslation,
+                        onToggleTranslation = {
+                            onShowLyricTranslationChange(!showLyricTranslation)
+                        },
+                        currentIndex = currentLyricIndex,
+                        isLoading = isLoadingLyrics,
+                        errorMessage = lyricError,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                }
+            } else {
+                TrackIdentity(
+                    track = track,
+                    artworkUrl = artworkUrl,
+                    artworkSize = 148.dp,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                LyricsPanel(
+                    lines = lyricLines,
+                    translations = translations,
+                    showTranslation = showLyricTranslation && hasTranslation,
+                    hasTranslation = hasTranslation,
+                    onToggleTranslation = {
+                        onShowLyricTranslationChange(!showLyricTranslation)
+                    },
+                    currentIndex = currentLyricIndex,
+                    isLoading = isLoadingLyrics,
+                    errorMessage = lyricError,
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
             }
-        }
 
-        PlayerArtwork(
-            artworkUrl = artworkUrl,
-            songName = track.name,
-            modifier = Modifier
-                .size(148.dp)
-                .align(Alignment.CenterHorizontally)
-                .padding(top = 6.dp)
-        )
-        Text(
-            text = track.name,
-            style = MaterialTheme.typography.titleLarge,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, start = 24.dp, end = 24.dp)
-        )
-        Text(
-            text = track.artist.ifBlank { "未知歌手" },
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 24.dp, end = 24.dp)
-        )
+            sourceMessage?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+            }
 
-        LyricsPanel(
-            lines = lyricLines,
-            translations = translations,
-            showTranslation = showLyricTranslation && hasTranslation,
-            hasTranslation = hasTranslation,
-            onToggleTranslation = {
-                onShowLyricTranslationChange(!showLyricTranslation)
-            },
-            currentIndex = currentLyricIndex,
-            isLoading = isLoadingLyrics,
-            errorMessage = lyricError,
-            modifier = Modifier.fillMaxWidth().weight(1f)
-        )
-
-        sourceMessage?.let { message ->
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            PlaybackControls(
+                playMode = playMode,
+                isPlaying = isPlaying,
+                playbackProgress = playbackProgress,
+                playbackPositionMs = playbackPositionMs,
+                playbackDurationMs = playbackDurationMs,
+                onSeekTo = onSeekTo,
+                onSwitchPlayMode = onSwitchPlayMode,
+                onSkipPrevious = onSkipPrevious,
+                onPlayPause = onPlayPause,
+                onSkipNext = onSkipNext,
+                onOpenQueue = onOpenQueue
             )
         }
-
-        PlaybackControls(
-            playMode = playMode,
-            isPlaying = isPlaying,
-            playbackProgress = playbackProgress,
-            playbackPositionMs = playbackPositionMs,
-            playbackDurationMs = playbackDurationMs,
-            onSeekTo = onSeekTo,
-            onSwitchPlayMode = onSwitchPlayMode,
-            onSkipPrevious = onSkipPrevious,
-            onPlayPause = onPlayPause,
-            onSkipNext = onSkipNext,
-            onOpenQueue = onOpenQueue
-        )
     }
 
     if (showMore) {
@@ -267,6 +291,42 @@ fun PlayerDetailScreen(
                     }
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun TrackIdentity(
+    track: Track,
+    artworkUrl: String,
+    artworkSize: Dp,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        PlayerArtwork(
+            artworkUrl = artworkUrl,
+            songName = track.name,
+            modifier = Modifier.size(artworkSize)
+        )
+        Text(
+            text = track.name,
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp, start = 8.dp, end = 8.dp)
+        )
+        Text(
+            text = track.artist.ifBlank { "未知歌手" },
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp, start = 8.dp, end = 8.dp)
         )
     }
 }
