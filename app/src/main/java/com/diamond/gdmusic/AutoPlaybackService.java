@@ -12,6 +12,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.datasource.DefaultDataSource;
@@ -86,6 +87,8 @@ public final class AutoPlaybackService extends MediaLibraryService {
     private final Map<String, Track> playbackTracks = new ConcurrentHashMap<>();
     private final Map<String, List<MediaItem>> autoSearchResults = new ConcurrentHashMap<>();
     private final Set<String> pendingArtworkItems = ConcurrentHashMap.newKeySet();
+    private final Set<String> sourceRecoveryItems = ConcurrentHashMap.newKeySet();
+    private final Set<String> failedPlaybackItems = ConcurrentHashMap.newKeySet();
     private Handler playbackHandler;
     private volatile boolean destroyed;
 
@@ -116,6 +119,22 @@ public final class AutoPlaybackService extends MediaLibraryService {
             ) {
                 requestMissingArtwork(mediaItem);
                 updateFavoriteButton(TrackMediaItem.toTrack(mediaItem));
+            }
+
+            @Override
+            public void onPlaybackStateChanged(int playbackState) {
+                if (playbackState != Player.STATE_READY) {
+                    return;
+                }
+                MediaItem currentItem = player.getCurrentMediaItem();
+                if (currentItem != null) {
+                    sourceRecoveryItems.remove(currentItem.mediaId);
+                }
+            }
+
+            @Override
+            public void onPlayerError(PlaybackException error) {
+                recoverOrSkipFailedTrack(error);
             }
         });
         player.setAudioAttributes(
@@ -158,6 +177,8 @@ public final class AutoPlaybackService extends MediaLibraryService {
     public void onDestroy() {
         destroyed = true;
         pendingArtworkItems.clear();
+        sourceRecoveryItems.clear();
+        failedPlaybackItems.clear();
         autoSearchResults.clear();
         playbackHandler.removeCallbacksAndMessages(null);
         mediaLibrarySession.release();
@@ -424,6 +445,10 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 int startIndex,
                 long startPositionMs
         ) {
+            // A new queue (including a user reselecting a track in Android Auto) deserves a
+            // fresh attempt. Failed IDs only apply to the queue that produced them.
+            sourceRecoveryItems.clear();
+            failedPlaybackItems.clear();
             QueueExpansion expansion = expandLibraryQueue(mediaItems, startIndex);
             return Futures.immediateFuture(
                     new MediaSession.MediaItemsWithStartPosition(
@@ -861,6 +886,130 @@ public final class AutoPlaybackService extends MediaLibraryService {
     private MediaItem trackItem(String mediaId, Track track) {
         playbackTracks.put(mediaId, track);
         return TrackMediaItem.create(mediaId, track);
+    }
+
+    /**
+     * A stream can still fail after a source has returned an audio URL. Retry the item once
+     * through the multi-source resolver, then advance to the next healthy queue item instead of
+     * leaving Media3 in the error state. This path is shared by the phone and Android Auto.
+     */
+    private void recoverOrSkipFailedTrack(PlaybackException error) {
+        if (destroyed || player == null) {
+            return;
+        }
+
+        MediaItem failedItem = player.getCurrentMediaItem();
+        int failedIndex = player.getCurrentMediaItemIndex();
+        if (failedItem == null || failedIndex == C.INDEX_UNSET) {
+            return;
+        }
+
+        String mediaId = failedItem.mediaId;
+        Log.w(
+                SESSION_LOG_TAG,
+                "Playback failed for " + mediaId + "; error=" + error.getErrorCodeName()
+        );
+
+        if (sourceRecoveryItems.add(mediaId) && retryItemWithOtherSources(failedIndex, mediaId)) {
+            return;
+        }
+
+        failedPlaybackItems.add(mediaId);
+        int nextIndex = findNextPlayableIndex(failedIndex);
+        if (nextIndex == C.INDEX_UNSET) {
+            Log.e(SESSION_LOG_TAG, "No playable item remains after source failure: " + mediaId);
+            return;
+        }
+
+        playbackHandler.post(() -> {
+            if (destroyed || player == null || nextIndex >= player.getMediaItemCount()) {
+                return;
+            }
+            Log.i(SESSION_LOG_TAG, "Skipping failed item and continuing at queue index " + nextIndex);
+            player.seekToDefaultPosition(nextIndex);
+            player.prepare();
+            player.play();
+        });
+    }
+
+    private boolean retryItemWithOtherSources(int index, String mediaId) {
+        if (index < 0 || index >= player.getMediaItemCount()) {
+            return false;
+        }
+
+        Track reference = playbackTracks.get(mediaId);
+        if (reference == null) {
+            reference = TrackMediaItem.toTrack(player.getMediaItemAt(index));
+        }
+        if (reference == null) {
+            return false;
+        }
+
+        Track retry = copyTrack(reference);
+        // Clear the broken URL and use the existing multi-source resolver on the next prepare.
+        retry.audioUrl = "";
+        retry.audioUrlCachedAt = 0L;
+        retry.externalMetadata = true;
+        playbackTracks.put(mediaId, retry);
+
+        playbackHandler.post(() -> {
+            if (destroyed || player == null || index >= player.getMediaItemCount()) {
+                return;
+            }
+            if (!mediaId.equals(player.getMediaItemAt(index).mediaId)) {
+                return;
+            }
+            Log.i(SESSION_LOG_TAG, "Retrying failed item with alternate sources: " + mediaId);
+            player.replaceMediaItem(index, TrackMediaItem.create(mediaId, retry));
+            player.seekToDefaultPosition(index);
+            player.prepare();
+            player.play();
+        });
+        return true;
+    }
+
+    private int findNextPlayableIndex(int failedIndex) {
+        int itemCount = player.getMediaItemCount();
+        if (itemCount <= 1) {
+            return C.INDEX_UNSET;
+        }
+
+        int playerNextIndex = player.getNextMediaItemIndex();
+        if (playerNextIndex != C.INDEX_UNSET
+                && playerNextIndex != failedIndex
+                && !failedPlaybackItems.contains(player.getMediaItemAt(playerNextIndex).mediaId)) {
+            return playerNextIndex;
+        }
+
+        // A bad item must not trap repeat-all playback. Fall back to queue order until a track
+        // that has not already failed in this queue is found.
+        for (int offset = 1; offset < itemCount; offset++) {
+            int candidateIndex = (failedIndex + offset) % itemCount;
+            if (!failedPlaybackItems.contains(player.getMediaItemAt(candidateIndex).mediaId)) {
+                return candidateIndex;
+            }
+        }
+        return C.INDEX_UNSET;
+    }
+
+    private Track copyTrack(Track source) {
+        Track copy = new Track(
+                source.id,
+                source.source,
+                source.name,
+                source.artist,
+                source.album,
+                source.picId,
+                source.lyricId
+        );
+        copy.audioUrl = source.audioUrl;
+        copy.audioUrlCachedAt = source.audioUrlCachedAt;
+        copy.picUrl = source.picUrl;
+        copy.lyric = source.lyric;
+        copy.translatedLyric = source.translatedLyric;
+        copy.requestedBitrate = source.requestedBitrate;
+        copy.externalMetadata = source.externalMetadata;
+        return copy;
     }
 
     private List<MediaItem> preparePlayableItems(List<MediaItem> requested) {
