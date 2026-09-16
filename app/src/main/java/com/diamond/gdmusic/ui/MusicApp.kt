@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -128,6 +129,7 @@ fun MusicApp(
     onPlayNext: (Track) -> Unit,
     onRootBack: () -> Unit
 ) {
+    val appContext = LocalContext.current.applicationContext
     var currentPage by remember {
         mutableStateOf(AppPage.HOME)
     }
@@ -450,7 +452,15 @@ fun MusicApp(
                             searchError = null
                             currentPage = AppPage.SEARCH
                         },
-                        onSongClick = onRecommendedSongClick
+                        onPlayHistoryTrack = { track ->
+                            onPlayResults(listOf(track), 0)
+                        },
+                        onPlayPlaylist = { playlist, tracks, index ->
+                            com.diamond.gdmusic.data.PlaybackHistoryStore(
+                                appContext
+                            ).recordPlaylist(playlist)
+                            onPlayResults(tracks, index)
+                        }
                     )
                 }
 
@@ -485,7 +495,11 @@ fun MusicApp(
 
                 AppPage.NETEASE_PLAYLIST -> {
                     NeteasePlaylistScreen(
-                        onPlayPlaylist = onPlayResults,
+                        onPlayPlaylist = { playlist, tracks, index ->
+                            com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
+                                .recordPlaylist(playlist)
+                            onPlayResults(tracks, index)
+                        },
                         onPlayNext = onPlayNext,
                         onAddToPlaylist = onAddToPlaylist,
                         onFavorite = { track ->

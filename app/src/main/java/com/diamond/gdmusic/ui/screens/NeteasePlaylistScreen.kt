@@ -70,7 +70,7 @@ import com.diamond.gdmusic.ui.components.TrackMoreBottomSheet
 
 @Composable
 fun NeteasePlaylistScreen(
-    onPlayPlaylist: (List<Track>, Int) -> Unit,
+    onPlayPlaylist: (NeteasePlaylist, List<Track>, Int) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -201,7 +201,7 @@ fun NeteasePlaylistScreen(
             errorMessage = trackError,
             onBack = ::closePlaylistDetail,
             onRetry = { loadTracks(playlist) },
-            onPlayPlaylist = onPlayPlaylist,
+            onPlayPlaylist = { tracks, index -> onPlayPlaylist(playlist, tracks, index) },
             onPlayNext = onPlayNext,
             onAddToPlaylist = onAddToPlaylist,
             onFavorite = onFavorite,

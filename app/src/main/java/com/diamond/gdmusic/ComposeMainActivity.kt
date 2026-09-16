@@ -229,11 +229,19 @@ class ComposeMainActivity : ComponentActivity() {
                     onSwitchPlayMode = ::switchPlaybackMode,
 
                     onSkipPrevious = {
-                        controllerOrWarn()?.seekToPreviousMediaItem()
+                        controllerOrWarn()?.let { player ->
+                            player.seekToPreviousMediaItem()
+                            player.prepare()
+                            player.play()
+                        }
                     },
 
                     onSkipNext = {
-                        controllerOrWarn()?.seekToNext()
+                        controllerOrWarn()?.let { player ->
+                            player.seekToNextMediaItem()
+                            player.prepare()
+                            player.play()
+                        }
                     },
 
                     onSeekTo = { positionMs ->
