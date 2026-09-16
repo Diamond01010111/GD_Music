@@ -31,6 +31,7 @@ import androidx.media3.session.SessionResult;
 import com.diamond.gdmusic.data.NeteasePlaylist;
 import com.diamond.gdmusic.data.NeteasePlaylistCache;
 import com.diamond.gdmusic.data.NeteasePlaylistRepository;
+import com.diamond.gdmusic.data.PlaybackHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -82,6 +83,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
     private LocalPlaylistStore playlistStore;
     private GdMusicApi musicApi;
     private NeteasePlaylistRepository neteaseRepository;
+    private PlaybackHistoryStore playbackHistoryStore;
     private final Map<String, NeteasePlaylist> neteasePlaylists = new LinkedHashMap<>();
     private final Map<String, List<Track>> neteaseTracks = new LinkedHashMap<>();
     private final Map<String, Track> playbackTracks = new ConcurrentHashMap<>();
@@ -98,6 +100,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
         playlistStore = new LocalPlaylistStore(getApplicationContext());
         musicApi = new GdMusicApi();
         neteaseRepository = new NeteasePlaylistRepository();
+        playbackHistoryStore = new PlaybackHistoryStore(getApplicationContext());
         String neteaseUserId = NeteasePlaylistCache.savedUserId(this);
         rememberNeteasePlaylists(NeteasePlaylistCache.read(this, neteaseUserId));
         ResolvingDataSource.Factory resolvingDataSourceFactory =
@@ -119,6 +122,9 @@ public final class AutoPlaybackService extends MediaLibraryService {
             ) {
                 requestMissingArtwork(mediaItem);
                 updateFavoriteButton(TrackMediaItem.toTrack(mediaItem));
+                if (player.isPlaying) {
+                    recordCurrentTrackAsPlayed();
+                }
             }
 
             @Override
@@ -129,6 +135,13 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 MediaItem currentItem = player.getCurrentMediaItem();
                 if (currentItem != null) {
                     sourceRecoveryItems.remove(currentItem.mediaId);
+                }
+            }
+
+            @Override
+            public void onIsPlayingChanged(boolean isPlaying) {
+                if (isPlaying) {
+                    recordCurrentTrackAsPlayed();
                 }
             }
 
@@ -212,6 +225,16 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 pendingArtworkItems.remove(mediaId);
             }
         });
+    }
+
+    private void recordCurrentTrackAsPlayed() {
+        if (playbackHistoryStore == null || player == null) {
+            return;
+        }
+        Track track = TrackMediaItem.toTrack(player.getCurrentMediaItem());
+        if (track != null) {
+            playbackHistoryStore.recordTrack(track);
+        }
     }
 
     private void updateMediaItemArtwork(String mediaId, String artworkUrl) {
