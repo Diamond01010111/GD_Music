@@ -110,6 +110,7 @@ fun MusicApp(
         tracks: List<Track>,
         index: Int
     ) -> Unit,
+    onPlaySingleTrack: (Track) -> Unit,
 
     onRecommendedSongClick: (String) -> Unit,
     onPlayPause: () -> Unit,
@@ -444,6 +445,7 @@ fun MusicApp(
             } else when (currentPage) {
                 AppPage.HOME -> {
                     HomeScreen(
+                        localPlaylists = localPlaylists,
                         defaultBitrate = defaultBitrate,
                         darkMode = darkMode,
                         onDefaultBitrateChange = onDefaultBitrateChange,
@@ -453,13 +455,26 @@ fun MusicApp(
                             currentPage = AppPage.SEARCH
                         },
                         onPlayHistoryTrack = { track ->
-                            onPlayResults(listOf(track), 0)
+                            onPlaySingleTrack(track)
                         },
-                        onPlayPlaylist = { playlist, tracks, index ->
+                        onPlayPlaylistTrack = { playlist, track ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(
                                 appContext
                             ).recordPlaylist(playlist)
-                            onPlayResults(tracks, index)
+                            onPlaySingleTrack(track)
+                        },
+                        onPlayLocalPlaylistTrack = { playlist, track ->
+                            com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
+                                .recordLocalPlaylist(playlist)
+                            onPlaySingleTrack(track)
+                        },
+                        onSyncPlaylist = { playlist, tracks, callback ->
+                            onImportNeteasePlaylist(playlist, tracks) { result ->
+                                if (result.isSuccess) {
+                                    localPlaylists = localPlaylistStore.playlists
+                                }
+                                callback(result)
+                            }
                         }
                     )
                 }
@@ -467,7 +482,11 @@ fun MusicApp(
                 AppPage.FAVORITE -> {
                     FavoriteScreen(
                         playlists = localPlaylists,
-                        onPlayPlaylist = onPlayResults,
+                        onPlayPlaylist = { playlist, tracks, index ->
+                            com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
+                                .recordLocalPlaylist(playlist)
+                            onPlayResults(tracks, index)
+                        },
                         onPlayNext = onPlayNext,
                         onAddToPlaylist = onAddToPlaylist,
                         onFavorite = { track ->
@@ -553,7 +572,7 @@ fun MusicApp(
                         onImportPlaylist = onImportNeteasePlaylist,
                         onPlayPlaylist = onPlayResults,
                         onTrackClick = { index ->
-                            onPlayResults(resultTracks, index)
+                            resultTracks.getOrNull(index)?.let(onPlaySingleTrack)
                         },
                         onPlayNext = onPlayNext,
                         onAddToPlaylist = onAddToPlaylist,

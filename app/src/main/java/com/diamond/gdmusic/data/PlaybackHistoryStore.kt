@@ -1,6 +1,7 @@
 package com.diamond.gdmusic.data
 
 import android.content.Context
+import com.diamond.gdmusic.LocalPlaylistStore
 import com.diamond.gdmusic.Track
 import org.json.JSONArray
 import org.json.JSONObject
@@ -9,8 +10,11 @@ data class RecentPlaylist(
     val id: String,
     val name: String,
     val coverUrl: String,
-    val trackCount: Int
-)
+    val trackCount: Int,
+    val type: Type = Type.NETEASE
+) {
+    enum class Type { NETEASE, LOCAL }
+}
 
 /**
  * Persists only tracks that have actually started playing.  Keeping this separate from the
@@ -38,9 +42,27 @@ class PlaybackHistoryStore(context: Context) {
             id = playlist.id,
             name = playlist.name,
             coverUrl = playlist.coverUrl,
-            trackCount = playlist.trackCount
+            trackCount = playlist.trackCount,
+            type = RecentPlaylist.Type.NETEASE
         )
-        val updated = listOf(recent) + recentPlaylists().filterNot { it.id == recent.id }
+        saveRecentPlaylist(recent)
+    }
+
+    fun recordLocalPlaylist(playlist: LocalPlaylistStore.LocalPlaylist) {
+        val recent = RecentPlaylist(
+            id = playlist.id,
+            name = playlist.name,
+            coverUrl = playlist.coverTrack?.picUrl.orEmpty(),
+            trackCount = playlist.tracks.size,
+            type = RecentPlaylist.Type.LOCAL
+        )
+        saveRecentPlaylist(recent)
+    }
+
+    private fun saveRecentPlaylist(recent: RecentPlaylist) {
+        val updated = listOf(recent) + recentPlaylists().filterNot {
+            it.id == recent.id && it.type == recent.type
+        }
         writeArray(PLAYLISTS_KEY, updated.take(MAX_PLAYLISTS).map(::playlistToJson))
     }
 
@@ -91,6 +113,7 @@ class PlaybackHistoryStore(context: Context) {
         .put("name", playlist.name)
         .put("coverUrl", playlist.coverUrl)
         .put("trackCount", playlist.trackCount)
+        .put("type", playlist.type.name)
 
     private fun playlistFromJson(value: JSONObject): RecentPlaylist? {
         val id = value.optString("id")
@@ -100,7 +123,10 @@ class PlaybackHistoryStore(context: Context) {
             id = id,
             name = name,
             coverUrl = value.optString("coverUrl"),
-            trackCount = value.optInt("trackCount", 0)
+            trackCount = value.optInt("trackCount", 0),
+            type = runCatching {
+                RecentPlaylist.Type.valueOf(value.optString("type", "NETEASE"))
+            }.getOrDefault(RecentPlaylist.Type.NETEASE)
         )
     }
 
