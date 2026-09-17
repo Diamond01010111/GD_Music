@@ -12,9 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -23,6 +21,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -70,6 +69,7 @@ import com.diamond.gdmusic.data.NeteaseToplistCache
 import com.diamond.gdmusic.data.PlaybackHistoryStore
 import com.diamond.gdmusic.data.RecentPlaylist
 import com.diamond.gdmusic.ui.components.AutoSizeSingleLineText
+import com.diamond.gdmusic.ui.components.TrackMoreBottomSheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -82,8 +82,16 @@ fun HomeScreen(
     onDarkModeChange: (Boolean) -> Unit,
     onOpenSearch: () -> Unit,
     onPlayHistoryTrack: (Track) -> Unit,
+    onPlayPlaylist: (NeteasePlaylist, List<Track>, Int) -> Unit,
     onPlayPlaylistTrack: (NeteasePlaylist, Track) -> Unit,
+    onPlayLocalPlaylist: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
     onPlayLocalPlaylistTrack: (LocalPlaylistStore.LocalPlaylist, Track) -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
+    onFavorite: (Track) -> Unit,
+    onSearchArtist: (String, String) -> Unit,
+    onSearchAlbum: (String, String) -> Unit,
+    onRemoveLocalPlaylistTrack: (String, Track) -> Unit,
     onSyncPlaylist: (NeteasePlaylist, List<Track>, (Result<Unit>) -> Unit) -> Unit
 ) {
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -144,7 +152,12 @@ fun HomeScreen(
         PlaybackHistoryDetail(
             tracks = recentTracks,
             onBack = { showHistory = false },
-            onPlayTrack = onPlayHistoryTrack
+            onPlayTrack = onPlayHistoryTrack,
+            onPlayNext = onPlayNext,
+            onAddToPlaylist = onAddToPlaylist,
+            onFavorite = onFavorite,
+            onSearchArtist = onSearchArtist,
+            onSearchAlbum = onSearchAlbum
         )
         return
     }
@@ -154,7 +167,13 @@ fun HomeScreen(
             playlist = playlist,
             repository = playlistRepository,
             onBack = { selectedPlaylist = null },
+            onPlayPlaylist = { tracks, index -> onPlayPlaylist(playlist, tracks, index) },
             onPlayTrack = { track -> onPlayPlaylistTrack(playlist, track) },
+            onPlayNext = onPlayNext,
+            onAddToPlaylist = onAddToPlaylist,
+            onFavorite = onFavorite,
+            onSearchArtist = onSearchArtist,
+            onSearchAlbum = onSearchAlbum,
             onSync = { tracks, callback -> onSyncPlaylist(playlist, tracks, callback) }
         )
         return
@@ -164,7 +183,14 @@ fun HomeScreen(
         HomeLocalPlaylistDetail(
             playlist = playlist,
             onBack = { selectedLocalPlaylist = null },
-            onPlayTrack = { track -> onPlayLocalPlaylistTrack(playlist, track) }
+            onPlayPlaylist = { tracks, index -> onPlayLocalPlaylist(playlist, tracks, index) },
+            onPlayTrack = { track -> onPlayLocalPlaylistTrack(playlist, track) },
+            onPlayNext = onPlayNext,
+            onAddToPlaylist = onAddToPlaylist,
+            onFavorite = onFavorite,
+            onSearchArtist = onSearchArtist,
+            onSearchAlbum = onSearchAlbum,
+            onRemoveTrack = { onRemoveLocalPlaylistTrack(playlist.id, it) }
         )
         return
     }
@@ -267,27 +293,17 @@ private fun HomeContent(
             }
         }
         item { SectionTitle("最近播放") }
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                item { HistoryPlaylistCard(onOpenHistory) }
-                items(recentPlaylists, key = { it.id }) { playlist ->
-                    PlaylistCard(playlist.name, playlist.coverUrl, "${playlist.trackCount} 首歌曲") {
-                        if (playlist.type == RecentPlaylist.Type.LOCAL) {
-                            localPlaylists.firstOrNull { it.id == playlist.id }
-                                ?.let(onOpenLocalPlaylist)
-                        } else {
-                            onOpenPlaylist(
-                                NeteasePlaylist(
-                                    playlist.id,
-                                    playlist.name,
-                                    playlist.coverUrl,
-                                    playlist.trackCount,
-                                    ""
-                                ),
-                                false
-                            )
-                        }
-                    }
+        item { HomePlaylistRow("播放历史", "", "最近 50 首", Icons.Default.History, onOpenHistory) }
+        items(recentPlaylists, key = { it.id }) { playlist ->
+            HomePlaylistRow(playlist.name, playlist.coverUrl, "${playlist.trackCount} 首歌曲") {
+                if (playlist.type == RecentPlaylist.Type.LOCAL) {
+                    localPlaylists.firstOrNull { it.id == playlist.id }
+                        ?.let(onOpenLocalPlaylist)
+                } else {
+                    onOpenPlaylist(
+                        NeteasePlaylist(playlist.id, playlist.name, playlist.coverUrl, playlist.trackCount, ""),
+                        false
+                    )
                 }
             }
         }
@@ -297,29 +313,26 @@ private fun HomeContent(
                 onOpenAll = onOpenAllRecommendations
             )
         }
-        item {
-            when {
-                isLoadingTopLists && visibleToplists.isEmpty() -> Row(
+        when {
+            isLoadingTopLists && visibleToplists.isEmpty() -> item { Row(
                     Modifier.fillMaxWidth().padding(vertical = 28.dp),
                     horizontalArrangement = Arrangement.Center
                 ) { CircularProgressIndicator() }
-                topListError != null && visibleToplists.isEmpty() -> Text(
+            }
+            topListError != null && visibleToplists.isEmpty() -> item { Text(
                     topListError,
                     color = MaterialTheme.colorScheme.error
-                )
-                else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(visibleToplists, key = { it.id }) { playlist ->
-                        PlaylistCard(
-                            playlist.name,
-                            playlist.coverUrl,
-                            when {
-                                recentlyBrowsedToplists.any { it.id == playlist.id } -> "最近浏览"
-                                playlist.trackCount > 0 -> "${playlist.trackCount} 首歌曲"
-                                else -> "网易云榜单"
-                            }
-                        ) { onOpenPlaylist(playlist, true) }
+                ) }
+            else -> items(visibleToplists, key = { it.id }) { playlist ->
+                HomePlaylistRow(
+                    playlist.name,
+                    playlist.coverUrl,
+                    when {
+                        recentlyBrowsedToplists.any { it.id == playlist.id } -> "最近浏览"
+                        playlist.trackCount > 0 -> "${playlist.trackCount} 首歌曲"
+                        else -> "网易云榜单"
                     }
-                }
+                ) { onOpenPlaylist(playlist, true) }
             }
         }
     }
@@ -348,71 +361,74 @@ private fun RecommendationHeader(
 }
 
 @Composable
-private fun ExpandedPlaylistRow(
-    playlist: NeteasePlaylist,
-    isRecentlyBrowsed: Boolean,
+private fun HomePlaylistRow(
+    name: String,
+    coverUrl: String,
+    subtitle: String,
+    fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.LibraryMusic,
     onClick: () -> Unit
 ) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().padding(10.dp),
+            Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (playlist.coverUrl.isNotBlank()) {
-                AsyncImage(
-                    model = playlist.coverUrl,
-                    contentDescription = playlist.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(58.dp).clip(MaterialTheme.shapes.medium)
-                )
-            } else {
-                Icon(Icons.Default.LibraryMusic, contentDescription = null, modifier = Modifier.size(58.dp))
-            }
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    if (isRecentlyBrowsed) "最近浏览" else "${playlist.trackCount} 首歌曲",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            Icon(Icons.Default.PlayArrow, contentDescription = "打开 ${playlist.name}")
-        }
-    }
-}
-
-@Composable
-private fun HistoryPlaylistCard(onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.width(132.dp)) {
-        Column(Modifier.height(176.dp).padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Icon(Icons.Default.History, contentDescription = null, modifier = Modifier.size(42.dp))
-            Column {
-                Text("播放历史", style = MaterialTheme.typography.titleMedium, maxLines = 1)
-                Text("最近 50 首", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlaylistCard(name: String, coverUrl: String, subtitle: String, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.width(132.dp)) {
-        Column(Modifier.padding(8.dp)) {
             if (coverUrl.isNotBlank()) {
                 AsyncImage(
                     model = coverUrl,
                     contentDescription = name,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(116.dp).clip(MaterialTheme.shapes.medium)
+                    modifier = Modifier.size(72.dp).clip(MaterialTheme.shapes.medium)
                 )
             } else {
-                Row(
-                    Modifier.size(116.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) { Icon(Icons.Default.LibraryMusic, contentDescription = null) }
+                Card(Modifier.size(72.dp)) {
+                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(fallbackIcon, contentDescription = null)
+                    }
+                }
             }
-            Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = "打开 $name")
+        }
+    }
+}
+
+@Composable
+private fun HomePlaylistCover(coverUrl: String, name: String, modifier: Modifier) {
+    Card(modifier) {
+        if (coverUrl.isNotBlank() && coverUrl != "null") {
+            AsyncImage(
+                model = coverUrl,
+                contentDescription = name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LibraryMusic, contentDescription = "默认歌单封面")
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeTrackCard(track: Track, onClick: () -> Unit, onMore: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth(), onClick = onClick) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(track.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                Text(track.artist, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+            }
+            IconButton(onClick = onMore) {
+                Icon(Icons.Default.MoreVert, contentDescription = "更多")
+            }
         }
     }
 }
@@ -421,8 +437,14 @@ private fun PlaylistCard(name: String, coverUrl: String, subtitle: String, onCli
 private fun PlaybackHistoryDetail(
     tracks: List<Track>,
     onBack: () -> Unit,
-    onPlayTrack: (Track) -> Unit
+    onPlayTrack: (Track) -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
+    onFavorite: (Track) -> Unit,
+    onSearchArtist: (String, String) -> Unit,
+    onSearchAlbum: (String, String) -> Unit
 ) {
+    var moreTrack by remember { mutableStateOf<Track?>(null) }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         DetailHeader("播放历史", onBack)
         Text("最近 ${tracks.size} 首", style = MaterialTheme.typography.bodyMedium)
@@ -437,15 +459,15 @@ private fun PlaybackHistoryDetail(
                     tracks,
                     key = { index, track -> "${track.source}:${track.id}:$index" }
                 ) { _, track ->
-                    ListItem(
-                        headlineContent = { Text(track.name, maxLines = 1) },
-                        supportingContent = { Text(track.artist, maxLines = 1) },
-                        trailingContent = { Icon(Icons.Default.PlayArrow, contentDescription = "播放 ${track.name}") },
-                        modifier = Modifier.clickable { onPlayTrack(track) }
-                    )
+                    HomeTrackCard(track, onClick = { onPlayTrack(track) }, onMore = { moreTrack = track })
                 }
             }
         }
+    }
+    moreTrack?.let { track ->
+        TrackMoreBottomSheet(track, { moreTrack = null }, onPlayNext, onAddToPlaylist, onFavorite,
+            onSearchArtist = { onSearchArtist(it, track.source) },
+            onSearchAlbum = { onSearchAlbum(it, track.source) })
     }
 }
 
@@ -454,7 +476,13 @@ private fun HomePlaylistDetail(
     playlist: NeteasePlaylist,
     repository: NeteasePlaylistRepository,
     onBack: () -> Unit,
+    onPlayPlaylist: (List<Track>, Int) -> Unit,
     onPlayTrack: (Track) -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
+    onFavorite: (Track) -> Unit,
+    onSearchArtist: (String, String) -> Unit,
+    onSearchAlbum: (String, String) -> Unit,
     onSync: (List<Track>, (Result<Unit>) -> Unit) -> Unit
 ) {
     var tracks by remember(playlist.id) { mutableStateOf<List<Track>>(emptyList()) }
@@ -462,6 +490,7 @@ private fun HomePlaylistDetail(
     var error by remember(playlist.id) { mutableStateOf<String?>(null) }
     var syncing by remember(playlist.id) { mutableStateOf(false) }
     var syncMessage by remember(playlist.id) { mutableStateOf<String?>(null) }
+    var moreTrack by remember(playlist.id) { mutableStateOf<Track?>(null) }
     LaunchedEffect(playlist.id) {
         repository.loadPlaylistTracks(playlist.id) { result ->
             loading = false
@@ -472,10 +501,6 @@ private fun HomePlaylistDetail(
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         DetailHeader(playlist.name, onBack)
-        Text(
-            if (playlist.trackCount > 0) "${playlist.trackCount} 首歌曲" else "网易云歌单",
-            style = MaterialTheme.typography.bodyMedium
-        )
         when {
             loading -> Row(Modifier.fillMaxWidth().padding(vertical = 36.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
             error != null -> Text(error ?: "加载歌单失败", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(24.dp))
@@ -485,6 +510,17 @@ private fun HomePlaylistDetail(
                     Modifier.fillMaxWidth().padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    HomePlaylistCover(playlist.coverUrl, playlist.name, Modifier.size(112.dp))
+                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                        Text(playlist.name, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
+                        Text("${tracks.size} 首歌曲", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+                        Button(onClick = { onPlayPlaylist(tracks, 0) }, modifier = Modifier.padding(top = 12.dp)) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Text("播放全部")
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(
                         onClick = {
                             syncing = true
@@ -521,16 +557,15 @@ private fun HomePlaylistDetail(
                         tracks,
                         key = { index, track -> "${track.source}:${track.id}:$index" }
                     ) { _, track ->
-                        ListItem(
-                            headlineContent = { Text(track.name, maxLines = 1) },
-                            supportingContent = { Text(track.artist, maxLines = 1) },
-                            trailingContent = { IconButton(onClick = { onPlayTrack(track) }) { Icon(Icons.Default.PlayArrow, contentDescription = "播放 ${track.name}") } },
-                            modifier = Modifier.clickable { onPlayTrack(track) }
-                        )
+                        HomeTrackCard(track, onClick = { onPlayTrack(track) }, onMore = { moreTrack = track })
                     }
                 }
             }
         }
+    }
+    moreTrack?.let { track ->
+        TrackMoreBottomSheet(track, { moreTrack = null }, onPlayNext, onAddToPlaylist, onFavorite,
+            onSearchArtist = { onSearchArtist(it, track.source) }, onSearchAlbum = { onSearchAlbum(it, track.source) })
     }
 }
 
@@ -538,14 +573,32 @@ private fun HomePlaylistDetail(
 private fun HomeLocalPlaylistDetail(
     playlist: LocalPlaylistStore.LocalPlaylist,
     onBack: () -> Unit,
-    onPlayTrack: (Track) -> Unit
+    onPlayPlaylist: (List<Track>, Int) -> Unit,
+    onPlayTrack: (Track) -> Unit,
+    onPlayNext: (Track) -> Unit,
+    onAddToPlaylist: (Track) -> Unit,
+    onFavorite: (Track) -> Unit,
+    onSearchArtist: (String, String) -> Unit,
+    onSearchAlbum: (String, String) -> Unit,
+    onRemoveTrack: (Track) -> Unit
 ) {
+    var moreTrack by remember(playlist.id) { mutableStateOf<Track?>(null) }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         DetailHeader(playlist.name, onBack)
-        Text("${playlist.tracks.size} 首歌曲", style = MaterialTheme.typography.bodyMedium)
         if (playlist.tracks.isEmpty()) {
             Text("收藏中还没有歌曲", modifier = Modifier.padding(24.dp))
         } else {
+            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                HomePlaylistCover(playlist.coverTrack?.picUrl.orEmpty(), playlist.name, Modifier.size(112.dp))
+                Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                    Text(playlist.name, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
+                    Text("${playlist.tracks.size} 首歌曲", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp))
+                    Button(onClick = { onPlayPlaylist(playlist.tracks, 0) }, modifier = Modifier.padding(top = 12.dp)) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null)
+                        Text("播放全部")
+                    }
+                }
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -554,19 +607,15 @@ private fun HomeLocalPlaylistDetail(
                     playlist.tracks,
                     key = { index, track -> "${track.source}:${track.id}:$index" }
                 ) { _, track ->
-                    ListItem(
-                        headlineContent = { Text(track.name, maxLines = 1) },
-                        supportingContent = { Text(track.artist, maxLines = 1) },
-                        trailingContent = {
-                            IconButton(onClick = { onPlayTrack(track) }) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = "播放 ${track.name}")
-                            }
-                        },
-                        modifier = Modifier.clickable { onPlayTrack(track) }
-                    )
+                    HomeTrackCard(track, onClick = { onPlayTrack(track) }, onMore = { moreTrack = track })
                 }
             }
         }
+    }
+    moreTrack?.let { track ->
+        TrackMoreBottomSheet(track, { moreTrack = null }, onPlayNext, onAddToPlaylist, onFavorite,
+            onSearchArtist = { onSearchArtist(it, track.source) }, onSearchAlbum = { onSearchAlbum(it, track.source) },
+            onRemove = onRemoveTrack)
     }
 }
 
@@ -607,9 +656,10 @@ private fun RecommendationListScreen(
             playlists.isEmpty() -> Text("暂无音乐推荐", modifier = Modifier.padding(20.dp))
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(playlists, key = { it.id }) { playlist ->
-                    ExpandedPlaylistRow(
-                        playlist = playlist,
-                        isRecentlyBrowsed = playlist.id in recentlyBrowsedIds,
+                    HomePlaylistRow(
+                        name = playlist.name,
+                        coverUrl = playlist.coverUrl,
+                        subtitle = if (playlist.id in recentlyBrowsedIds) "最近浏览" else "${playlist.trackCount} 首歌曲",
                         onClick = { onOpenPlaylist(playlist) }
                     )
                 }
