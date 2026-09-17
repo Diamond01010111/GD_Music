@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
@@ -293,17 +295,41 @@ private fun HomeContent(
             }
         }
         item { SectionTitle("最近播放") }
-        item { HomePlaylistRow("播放历史", "", "最近 50 首", Icons.Default.History, onOpenHistory) }
-        items(recentPlaylists, key = { it.id }) { playlist ->
-            HomePlaylistRow(playlist.name, playlist.coverUrl, "${playlist.trackCount} 首歌曲") {
-                if (playlist.type == RecentPlaylist.Type.LOCAL) {
-                    localPlaylists.firstOrNull { it.id == playlist.id }
-                        ?.let(onOpenLocalPlaylist)
-                } else {
-                    onOpenPlaylist(
-                        NeteasePlaylist(playlist.id, playlist.name, playlist.coverUrl, playlist.trackCount, ""),
-                        false
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                item {
+                    HomePlaylistRow(
+                        name = "播放历史",
+                        coverUrl = "",
+                        subtitle = "最近 50 首",
+                        fallbackIcon = Icons.Default.History,
+                        modifier = Modifier.width(280.dp),
+                        onClick = onOpenHistory
                     )
+                }
+                items(recentPlaylists, key = { it.id }) { playlist ->
+                    HomePlaylistRow(
+                        name = playlist.name,
+                        coverUrl = playlist.coverUrl,
+                        subtitle = "${playlist.trackCount} 首歌曲",
+                        modifier = Modifier.width(280.dp)
+                    ) {
+                        if (playlist.type == RecentPlaylist.Type.LOCAL) {
+                            localPlaylists.firstOrNull { it.id == playlist.id }
+                                ?.let(onOpenLocalPlaylist)
+                        } else {
+                            onOpenPlaylist(
+                                NeteasePlaylist(
+                                    playlist.id,
+                                    playlist.name,
+                                    playlist.coverUrl,
+                                    playlist.trackCount,
+                                    ""
+                                ),
+                                false
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -313,26 +339,31 @@ private fun HomeContent(
                 onOpenAll = onOpenAllRecommendations
             )
         }
-        when {
-            isLoadingTopLists && visibleToplists.isEmpty() -> item { Row(
+        item {
+            when {
+                isLoadingTopLists && visibleToplists.isEmpty() -> Row(
                     Modifier.fillMaxWidth().padding(vertical = 28.dp),
                     horizontalArrangement = Arrangement.Center
                 ) { CircularProgressIndicator() }
-            }
-            topListError != null && visibleToplists.isEmpty() -> item { Text(
+                topListError != null && visibleToplists.isEmpty() -> Text(
                     topListError,
                     color = MaterialTheme.colorScheme.error
-                ) }
-            else -> items(visibleToplists, key = { it.id }) { playlist ->
-                HomePlaylistRow(
-                    playlist.name,
-                    playlist.coverUrl,
-                    when {
-                        recentlyBrowsedToplists.any { it.id == playlist.id } -> "最近浏览"
-                        playlist.trackCount > 0 -> "${playlist.trackCount} 首歌曲"
-                        else -> "网易云榜单"
+                )
+                else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(visibleToplists, key = { it.id }) { playlist ->
+                        HomePlaylistRow(
+                            name = playlist.name,
+                            coverUrl = playlist.coverUrl,
+                            subtitle = when {
+                                recentlyBrowsedToplists.any { it.id == playlist.id } -> "最近浏览"
+                                playlist.trackCount > 0 -> "${playlist.trackCount} 首歌曲"
+                                else -> "网易云榜单"
+                            },
+                            modifier = Modifier.width(280.dp),
+                            onClick = { onOpenPlaylist(playlist, true) }
+                        )
                     }
-                ) { onOpenPlaylist(playlist, true) }
+                }
             }
         }
     }
@@ -366,9 +397,10 @@ private fun HomePlaylistRow(
     coverUrl: String,
     subtitle: String,
     fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.LibraryMusic,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
+    Card(onClick = onClick, modifier = modifier) {
         Row(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
