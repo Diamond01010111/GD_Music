@@ -1,5 +1,6 @@
 package com.diamond.gdmusic.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,27 +16,26 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
@@ -100,7 +100,7 @@ fun HomeScreen(
     }
     var topListError by remember { mutableStateOf<String?>(null) }
     var isLoadingTopLists by remember { mutableStateOf(topLists.isEmpty()) }
-    var recommendationsExpanded by remember { mutableStateOf(false) }
+    var showAllRecommendations by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
     var selectedPlaylist by remember { mutableStateOf<NeteasePlaylist?>(null) }
     var selectedLocalPlaylist by remember { mutableStateOf<LocalPlaylistStore.LocalPlaylist?>(null) }
@@ -128,6 +128,64 @@ fun HomeScreen(
         }
     }
 
+    BackHandler(
+        enabled = showHistory || selectedPlaylist != null ||
+            selectedLocalPlaylist != null || showAllRecommendations
+    ) {
+        when {
+            selectedPlaylist != null -> selectedPlaylist = null
+            selectedLocalPlaylist != null -> selectedLocalPlaylist = null
+            showHistory -> showHistory = false
+            showAllRecommendations -> showAllRecommendations = false
+        }
+    }
+
+    if (showHistory) {
+        PlaybackHistoryDetail(
+            tracks = recentTracks,
+            onBack = { showHistory = false },
+            onPlayTrack = onPlayHistoryTrack
+        )
+        return
+    }
+
+    selectedPlaylist?.let { playlist ->
+        HomePlaylistDetail(
+            playlist = playlist,
+            repository = playlistRepository,
+            onBack = { selectedPlaylist = null },
+            onPlayTrack = { track -> onPlayPlaylistTrack(playlist, track) },
+            onSync = { tracks, callback -> onSyncPlaylist(playlist, tracks, callback) }
+        )
+        return
+    }
+
+    selectedLocalPlaylist?.let { playlist ->
+        HomeLocalPlaylistDetail(
+            playlist = playlist,
+            onBack = { selectedLocalPlaylist = null },
+            onPlayTrack = { track -> onPlayLocalPlaylistTrack(playlist, track) }
+        )
+        return
+    }
+
+    if (showAllRecommendations) {
+        RecommendationListScreen(
+            playlists = (recentlyBrowsedToplists + topLists).distinctBy { it.id },
+            recentlyBrowsedIds = recentlyBrowsedToplists.mapTo(mutableSetOf()) { it.id },
+            isLoading = isLoadingTopLists,
+            errorMessage = topListError,
+            onBack = { showAllRecommendations = false },
+            onRefresh = ::refreshToplists,
+            onOpenPlaylist = { playlist ->
+                NeteaseToplistCache.recordBrowsing(context, playlist)
+                recentlyBrowsedToplists = NeteaseToplistCache.recentlyBrowsed(context)
+                selectedPlaylist = playlist
+            }
+        )
+        return
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -141,7 +199,6 @@ fun HomeScreen(
             recentlyBrowsedToplists = recentlyBrowsedToplists,
             isLoadingTopLists = isLoadingTopLists,
             topListError = topListError,
-            recommendationsExpanded = recommendationsExpanded,
             onOpenDrawer = { scope.launch { drawerState.open() } },
             onOpenSearch = onOpenSearch,
             onOpenHistory = {
@@ -149,7 +206,7 @@ fun HomeScreen(
                 showHistory = true
             },
             onRefreshToplists = ::refreshToplists,
-            onToggleRecommendations = { recommendationsExpanded = !recommendationsExpanded },
+            onOpenAllRecommendations = { showAllRecommendations = true },
             onOpenPlaylist = { playlist, isRecommendation ->
                 if (isRecommendation) {
                     NeteaseToplistCache.recordBrowsing(context, playlist)
@@ -161,34 +218,6 @@ fun HomeScreen(
         )
     }
 
-    if (showHistory) {
-        PlaybackHistorySheet(recentTracks, { showHistory = false }) {
-            onPlayHistoryTrack(it)
-            showHistory = false
-        }
-    }
-    selectedPlaylist?.let { playlist ->
-        HomePlaylistSheet(
-            playlist = playlist,
-            repository = playlistRepository,
-            onDismiss = { selectedPlaylist = null },
-            onPlayTrack = { track ->
-                onPlayPlaylistTrack(playlist, track)
-                selectedPlaylist = null
-            },
-            onSync = { tracks, callback -> onSyncPlaylist(playlist, tracks, callback) }
-        )
-    }
-    selectedLocalPlaylist?.let { playlist ->
-        HomeLocalPlaylistSheet(
-            playlist = playlist,
-            onDismiss = { selectedLocalPlaylist = null },
-            onPlayTrack = { track ->
-                onPlayLocalPlaylistTrack(playlist, track)
-                selectedLocalPlaylist = null
-            }
-        )
-    }
 }
 
 @Composable
@@ -199,12 +228,11 @@ private fun HomeContent(
     recentlyBrowsedToplists: List<NeteasePlaylist>,
     isLoadingTopLists: Boolean,
     topListError: String?,
-    recommendationsExpanded: Boolean,
     onOpenDrawer: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenHistory: () -> Unit,
     onRefreshToplists: () -> Unit,
-    onToggleRecommendations: () -> Unit,
+    onOpenAllRecommendations: () -> Unit,
     onOpenPlaylist: (NeteasePlaylist, Boolean) -> Unit,
     onOpenLocalPlaylist: (LocalPlaylistStore.LocalPlaylist) -> Unit
 ) {
@@ -265,39 +293,31 @@ private fun HomeContent(
         }
         item {
             RecommendationHeader(
-                expanded = recommendationsExpanded,
                 onRefresh = onRefreshToplists,
-                onToggleExpanded = onToggleRecommendations
+                onOpenAll = onOpenAllRecommendations
             )
         }
-        if (recommendationsExpanded) {
-            items(visibleToplists, key = { "expanded-${it.id}" }) { playlist ->
-                ExpandedPlaylistRow(
-                    playlist = playlist,
-                    isRecentlyBrowsed = recentlyBrowsedToplists.any { it.id == playlist.id },
-                    onClick = { onOpenPlaylist(playlist, true) }
+        item {
+            when {
+                isLoadingTopLists && visibleToplists.isEmpty() -> Row(
+                    Modifier.fillMaxWidth().padding(vertical = 28.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) { CircularProgressIndicator() }
+                topListError != null && visibleToplists.isEmpty() -> Text(
+                    topListError,
+                    color = MaterialTheme.colorScheme.error
                 )
-            }
-        } else {
-            item {
-                when {
-                    isLoadingTopLists -> Row(
-                        Modifier.fillMaxWidth().padding(vertical = 28.dp),
-                        horizontalArrangement = Arrangement.Center
-                    ) { CircularProgressIndicator() }
-                    topListError != null -> Text(topListError, color = MaterialTheme.colorScheme.error)
-                    else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(visibleToplists, key = { it.id }) { playlist ->
-                            PlaylistCard(
-                                playlist.name,
-                                playlist.coverUrl,
-                                when {
-                                    recentlyBrowsedToplists.any { it.id == playlist.id } -> "最近浏览"
-                                    playlist.trackCount > 0 -> "${playlist.trackCount} 首歌曲"
-                                    else -> "网易云榜单"
-                                }
-                            ) { onOpenPlaylist(playlist, true) }
-                        }
+                else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(visibleToplists, key = { it.id }) { playlist ->
+                        PlaylistCard(
+                            playlist.name,
+                            playlist.coverUrl,
+                            when {
+                                recentlyBrowsedToplists.any { it.id == playlist.id } -> "最近浏览"
+                                playlist.trackCount > 0 -> "${playlist.trackCount} 首歌曲"
+                                else -> "网易云榜单"
+                            }
+                        ) { onOpenPlaylist(playlist, true) }
                     }
                 }
             }
@@ -312,21 +332,17 @@ private fun SectionTitle(title: String) {
 
 @Composable
 private fun RecommendationHeader(
-    expanded: Boolean,
     onRefresh: () -> Unit,
-    onToggleExpanded: () -> Unit
+    onOpenAll: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("音乐推荐", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
         IconButton(onClick = onRefresh) {
             Icon(Icons.Default.Refresh, contentDescription = "刷新音乐推荐")
         }
-        TextButton(onClick = onToggleExpanded) {
-            Icon(
-                if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = null
-            )
-            Text(if (expanded) "收起" else "展开全部")
+        TextButton(onClick = onOpenAll) {
+            Text("查看全部")
+            Icon(Icons.Default.ChevronRight, contentDescription = null)
         }
     }
 }
@@ -401,16 +417,26 @@ private fun PlaylistCard(name: String, coverUrl: String, subtitle: String, onCli
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlaybackHistorySheet(tracks: List<Track>, onDismiss: () -> Unit, onPlayTrack: (Track) -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text("播放历史", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+private fun PlaybackHistoryDetail(
+    tracks: List<Track>,
+    onBack: () -> Unit,
+    onPlayTrack: (Track) -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        DetailHeader("播放历史", onBack)
+        Text("最近 ${tracks.size} 首", style = MaterialTheme.typography.bodyMedium)
         if (tracks.isEmpty()) {
             Text("播放歌曲后会显示在这里。", modifier = Modifier.padding(24.dp))
         } else {
-            LazyColumn(modifier = Modifier.fillMaxHeight(0.72f)) {
-                items(tracks, key = { "${it.source}:${it.id}" }) { track ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(
+                    tracks,
+                    key = { index, track -> "${track.source}:${track.id}:$index" }
+                ) { _, track ->
                     ListItem(
                         headlineContent = { Text(track.name, maxLines = 1) },
                         supportingContent = { Text(track.artist, maxLines = 1) },
@@ -423,12 +449,11 @@ private fun PlaybackHistorySheet(tracks: List<Track>, onDismiss: () -> Unit, onP
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomePlaylistSheet(
+private fun HomePlaylistDetail(
     playlist: NeteasePlaylist,
     repository: NeteasePlaylistRepository,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
     onPlayTrack: (Track) -> Unit,
     onSync: (List<Track>, (Result<Unit>) -> Unit) -> Unit
 ) {
@@ -445,15 +470,19 @@ private fun HomePlaylistSheet(
             }
         }
     }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text(playlist.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        DetailHeader(playlist.name, onBack)
+        Text(
+            if (playlist.trackCount > 0) "${playlist.trackCount} 首歌曲" else "网易云歌单",
+            style = MaterialTheme.typography.bodyMedium
+        )
         when {
             loading -> Row(Modifier.fillMaxWidth().padding(vertical = 36.dp), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
             error != null -> Text(error ?: "加载歌单失败", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(24.dp))
             tracks.isEmpty() -> Text("歌单暂无歌曲", modifier = Modifier.padding(24.dp))
             else -> {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
@@ -484,8 +513,14 @@ private fun HomePlaylistSheet(
                         )
                     }
                 }
-                LazyColumn(modifier = Modifier.fillMaxHeight(0.64f)) {
-                    items(tracks, key = { "${it.source}:${it.id}" }) { track ->
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    itemsIndexed(
+                        tracks,
+                        key = { index, track -> "${track.source}:${track.id}:$index" }
+                    ) { _, track ->
                         ListItem(
                             headlineContent = { Text(track.name, maxLines = 1) },
                             supportingContent = { Text(track.artist, maxLines = 1) },
@@ -499,24 +534,26 @@ private fun HomePlaylistSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeLocalPlaylistSheet(
+private fun HomeLocalPlaylistDetail(
     playlist: LocalPlaylistStore.LocalPlaylist,
-    onDismiss: () -> Unit,
+    onBack: () -> Unit,
     onPlayTrack: (Track) -> Unit
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Text(
-            playlist.name,
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
-        )
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        DetailHeader(playlist.name, onBack)
+        Text("${playlist.tracks.size} 首歌曲", style = MaterialTheme.typography.bodyMedium)
         if (playlist.tracks.isEmpty()) {
             Text("收藏中还没有歌曲", modifier = Modifier.padding(24.dp))
         } else {
-            LazyColumn(modifier = Modifier.fillMaxHeight(0.72f)) {
-                items(playlist.tracks, key = { "${it.source}:${it.id}" }) { track ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                itemsIndexed(
+                    playlist.tracks,
+                    key = { index, track -> "${track.source}:${track.id}:$index" }
+                ) { _, track ->
                     ListItem(
                         headlineContent = { Text(track.name, maxLines = 1) },
                         supportingContent = { Text(track.artist, maxLines = 1) },
@@ -530,6 +567,70 @@ private fun HomeLocalPlaylistSheet(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RecommendationListScreen(
+    playlists: List<NeteasePlaylist>,
+    recentlyBrowsedIds: Set<String>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onOpenPlaylist: (NeteasePlaylist) -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "返回首页")
+            }
+            Text(
+                "音乐推荐",
+                style = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onRefresh, enabled = !isLoading) {
+                Icon(Icons.Default.Refresh, contentDescription = "刷新音乐推荐")
+            }
+        }
+        when {
+            isLoading && playlists.isEmpty() -> Row(
+                Modifier.fillMaxWidth().padding(vertical = 36.dp),
+                horizontalArrangement = Arrangement.Center
+            ) { CircularProgressIndicator() }
+            errorMessage != null && playlists.isEmpty() -> Text(
+                errorMessage,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(20.dp)
+            )
+            playlists.isEmpty() -> Text("暂无音乐推荐", modifier = Modifier.padding(20.dp))
+            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(playlists, key = { it.id }) { playlist ->
+                    ExpandedPlaylistRow(
+                        playlist = playlist,
+                        isRecentlyBrowsed = playlist.id in recentlyBrowsedIds,
+                        onClick = { onOpenPlaylist(playlist) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailHeader(title: String, onBack: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onBack) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+        }
+        Text(
+            title,
+            style = MaterialTheme.typography.headlineSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
     }
 }
 
