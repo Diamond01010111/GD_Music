@@ -20,7 +20,7 @@ import com.diamond.gdmusic.ui.components.TrackMoreBottomSheet
 @Composable
 fun FavoriteScreen(
     playlists: List<LocalPlaylistStore.LocalPlaylist>,
-    onPlayPlaylist: (List<Track>, Int) -> Unit,
+    onPlayPlaylist: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -130,7 +130,7 @@ fun FavoriteScreen(
 private fun FavoriteDetail(
     favorite: LocalPlaylistStore.LocalPlaylist,
     onBack: () -> Unit,
-    onPlayPlaylist: (List<Track>, Int) -> Unit,
+    onPlayPlaylist: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -170,7 +170,7 @@ private fun FavoriteDetail(
                 )
                 Button(
                     enabled = favorite.tracks.isNotEmpty(),
-                    onClick = { onPlayPlaylist(favorite.tracks, 0) },
+                    onClick = { onPlayPlaylist(favorite, favorite.tracks, 0) },
                     modifier = Modifier.padding(top = 12.dp)
                 ) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -189,7 +189,7 @@ private fun FavoriteDetail(
                 ) { index, track ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        onClick = { onPlayPlaylist(favorite.tracks, index) }
+                        onClick = { onPlayPlaylist(favorite, favorite.tracks, index) }
                     ) {
                         Row(
                             Modifier.fillMaxWidth().padding(14.dp),

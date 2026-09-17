@@ -217,6 +217,7 @@ class ComposeMainActivity : ComponentActivity() {
                     },
 
                     onPlayResults = ::playTracks,
+                    onPlaySingleTrack = ::playSingleTrack,
 
                     onRecommendedSongClick = ::searchAndPlayFirst,
 
@@ -384,6 +385,28 @@ class ComposeMainActivity : ComponentActivity() {
             phoneMediaItem(track, index)
         }
         controller.setMediaItems(items, startIndex, 0L)
+        controller.prepare()
+        controller.play()
+    }
+
+    /**
+     * A tapped song must not turn every visible search result into queue entries. When a queue
+     * already exists, put only that song directly after the current one and start it.
+     */
+    private fun playSingleTrack(track: Track) {
+        val controller = controllerOrWarn() ?: return
+        val item = phoneMediaItem(track, controller.mediaItemCount)
+        if (controller.mediaItemCount == 0) {
+            controller.setMediaItem(item)
+            controller.prepare()
+            controller.play()
+            return
+        }
+
+        val insertAt = (controller.currentMediaItemIndex + 1)
+            .coerceIn(0, controller.mediaItemCount)
+        controller.addMediaItem(insertAt, item)
+        controller.seekToDefaultPosition(insertAt)
         controller.prepare()
         controller.play()
     }
