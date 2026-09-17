@@ -469,12 +469,7 @@ fun MusicApp(
                             onPlaySingleTrack(track)
                         },
                         onSyncPlaylist = { playlist, tracks, callback ->
-                            onImportNeteasePlaylist(playlist, tracks) { result ->
-                                if (result.isSuccess) {
-                                    localPlaylists = localPlaylistStore.playlists
-                                }
-                                callback(result)
-                            }
+                            onImportNeteasePlaylist(playlist, tracks, callback)
                         }
                     )
                 }
