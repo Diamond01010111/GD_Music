@@ -457,17 +457,37 @@ fun MusicApp(
                         onPlayHistoryTrack = { track ->
                             onPlaySingleTrack(track)
                         },
-                        onPlayPlaylistTrack = { playlist, track ->
+                        onPlayPlaylist = { playlist, tracks, index ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(
                                 appContext
                             ).recordPlaylist(playlist)
+                            onPlayResults(tracks, index)
+                        },
+                        onPlayPlaylistTrack = { playlist, track ->
+                            com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
+                                .recordPlaylist(playlist)
                             onPlaySingleTrack(track)
+                        },
+                        onPlayLocalPlaylist = { playlist, tracks, index ->
+                            com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
+                                .recordLocalPlaylist(playlist)
+                            onPlayResults(tracks, index)
                         },
                         onPlayLocalPlaylistTrack = { playlist, track ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
                                 .recordLocalPlaylist(playlist)
                             onPlaySingleTrack(track)
                         },
+                        onPlayNext = onPlayNext,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onFavorite = { track -> pendingFavoriteTrack = track },
+                        onSearchArtist = { artist, source ->
+                            executeSearch(artist, SearchCategory.SONG, source)
+                        },
+                        onSearchAlbum = { album, source ->
+                            executeSearch(album, SearchCategory.ALBUM, source)
+                        },
+                        onRemoveLocalPlaylistTrack = onRemoveLocalPlaylistTrack,
                         onSyncPlaylist = { playlist, tracks, callback ->
                             onImportNeteasePlaylist(playlist, tracks, callback)
                         }
