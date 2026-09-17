@@ -122,7 +122,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
             ) {
                 requestMissingArtwork(mediaItem);
                 updateFavoriteButton(TrackMediaItem.toTrack(mediaItem));
-                if (player.isPlaying) {
+                if (player.isPlaying()) {
                     recordCurrentTrackAsPlayed();
                 }
             }
