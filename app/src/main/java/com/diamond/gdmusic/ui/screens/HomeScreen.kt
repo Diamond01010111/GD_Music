@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -20,7 +22,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Menu
@@ -58,7 +59,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -213,23 +213,6 @@ fun HomeScreen(
         return
     }
 
-    if (showAllRecommendations) {
-        RecommendationListScreen(
-            playlists = (recentlyBrowsedToplists + topLists).distinctBy { it.id },
-            isLoading = isLoadingTopLists,
-            errorMessage = topListError,
-            onBack = { showAllRecommendations = false },
-            onRefresh = ::refreshToplists,
-            onOpenPlaylist = { playlist ->
-                NeteaseToplistCache.recordBrowsing(context, playlist)
-                recentlyBrowsedToplists = NeteaseToplistCache.recentlyBrowsed(context)
-                selectedPlaylistIsRecommendation = true
-                selectedPlaylist = playlist
-            }
-        )
-        return
-    }
-
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -243,6 +226,7 @@ fun HomeScreen(
             recentlyBrowsedToplists = recentlyBrowsedToplists,
             isLoadingTopLists = isLoadingTopLists,
             topListError = topListError,
+            showAllRecommendations = showAllRecommendations,
             onOpenDrawer = { scope.launch { drawerState.open() } },
             onOpenSearch = onOpenSearch,
             onOpenHistory = {
@@ -250,7 +234,9 @@ fun HomeScreen(
                 showHistory = true
             },
             onRefreshToplists = ::refreshToplists,
-            onOpenAllRecommendations = { showAllRecommendations = true },
+            onToggleAllRecommendations = {
+                showAllRecommendations = !showAllRecommendations
+            },
             onOpenPlaylist = { playlist, isRecommendation ->
                 selectedPlaylistIsRecommendation = isRecommendation
                 if (isRecommendation) {
@@ -265,6 +251,7 @@ fun HomeScreen(
 
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeContent(
     recentPlaylists: List<RecentPlaylist>,
@@ -273,11 +260,12 @@ private fun HomeContent(
     recentlyBrowsedToplists: List<NeteasePlaylist>,
     isLoadingTopLists: Boolean,
     topListError: String?,
+    showAllRecommendations: Boolean,
     onOpenDrawer: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenHistory: () -> Unit,
     onRefreshToplists: () -> Unit,
-    onOpenAllRecommendations: () -> Unit,
+    onToggleAllRecommendations: () -> Unit,
     onOpenPlaylist: (NeteasePlaylist, Boolean) -> Unit,
     onOpenLocalPlaylist: (LocalPlaylistStore.LocalPlaylist) -> Unit
 ) {
@@ -351,7 +339,8 @@ private fun HomeContent(
         item {
             RecommendationHeader(
                 onRefresh = onRefreshToplists,
-                onOpenAll = onOpenAllRecommendations
+                isExpanded = showAllRecommendations,
+                onToggleExpanded = onToggleAllRecommendations
             )
         }
         item {
@@ -364,6 +353,24 @@ private fun HomeContent(
                     topListError,
                     color = MaterialTheme.colorScheme.error
                 )
+                showAllRecommendations -> FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    visibleToplists.forEach { playlist ->
+                        HomePlaylistCard(
+                            name = playlist.name,
+                            coverUrl = playlist.coverUrl,
+                            subtitle = if (playlist.trackCount > 0) {
+                                "${playlist.trackCount} 首歌曲"
+                            } else {
+                                "网易云榜单"
+                            },
+                            onClick = { onOpenPlaylist(playlist, true) }
+                        )
+                    }
+                }
                 else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(visibleToplists, key = { it.id }) { playlist ->
                         HomePlaylistCard(
@@ -391,16 +398,16 @@ private fun SectionTitle(title: String) {
 @Composable
 private fun RecommendationHeader(
     onRefresh: () -> Unit,
-    onOpenAll: () -> Unit
+    isExpanded: Boolean,
+    onToggleExpanded: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("音乐推荐", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
         IconButton(onClick = onRefresh) {
             Icon(Icons.Default.Refresh, contentDescription = "刷新音乐推荐")
         }
-        TextButton(onClick = onOpenAll) {
-            Text("查看全部")
-            Icon(Icons.Default.ChevronRight, contentDescription = null)
+        TextButton(onClick = onToggleExpanded) {
+            Text(if (isExpanded) "收起" else "查看全部")
         }
     }
 }
@@ -444,47 +451,6 @@ private fun HomePlaylistCard(
                 maxLines = 1,
                 modifier = Modifier.padding(start = 8.dp, top = 2.dp, end = 8.dp, bottom = 8.dp)
             )
-        }
-    }
-}
-
-@Composable
-private fun HomePlaylistRow(
-    name: String,
-    coverUrl: String,
-    subtitle: String,
-    fallbackIcon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Default.LibraryMusic,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    Card(onClick = onClick, modifier = modifier) {
-        Row(
-            Modifier.fillMaxWidth().padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (coverUrl.isNotBlank()) {
-                AsyncImage(
-                    model = coverUrl,
-                    contentDescription = name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(72.dp).clip(MaterialTheme.shapes.medium)
-                )
-            } else {
-                Card(Modifier.size(72.dp)) {
-                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                        Icon(fallbackIcon, contentDescription = null)
-                    }
-                }
-            }
-            Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-            Icon(Icons.Default.ChevronRight, contentDescription = "打开 $name")
         }
     }
 }
@@ -795,58 +761,6 @@ private fun HomePlaylistMoreSheet(
                     }
                 }
             )
-        }
-    }
-}
-
-@Composable
-private fun RecommendationListScreen(
-    playlists: List<NeteasePlaylist>,
-    isLoading: Boolean,
-    errorMessage: String?,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit,
-    onOpenPlaylist: (NeteasePlaylist) -> Unit
-) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "返回首页")
-            }
-            Text(
-                "音乐推荐",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = onRefresh, enabled = !isLoading) {
-                Icon(Icons.Default.Refresh, contentDescription = "刷新音乐推荐")
-            }
-        }
-        when {
-            isLoading && playlists.isEmpty() -> Row(
-                Modifier.fillMaxWidth().padding(vertical = 36.dp),
-                horizontalArrangement = Arrangement.Center
-            ) { CircularProgressIndicator() }
-            errorMessage != null && playlists.isEmpty() -> Text(
-                errorMessage,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(20.dp)
-            )
-            playlists.isEmpty() -> Text("暂无音乐推荐", modifier = Modifier.padding(20.dp))
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(playlists, key = { it.id }) { playlist ->
-                    HomePlaylistRow(
-                        name = playlist.name,
-                        coverUrl = playlist.coverUrl,
-                        subtitle = if (playlist.trackCount > 0) {
-                            "${playlist.trackCount} 首歌曲"
-                        } else {
-                            "网易云榜单"
-                        },
-                        onClick = { onOpenPlaylist(playlist) }
-                    )
-                }
-            }
         }
     }
 }
