@@ -20,6 +20,7 @@ import androidx.media3.datasource.ResolvingDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.session.CommandButton;
+import androidx.media3.session.DefaultMediaNotificationProvider;
 import androidx.media3.session.LibraryResult;
 import androidx.media3.session.MediaLibraryService;
 import androidx.media3.session.MediaSession;
@@ -101,6 +102,11 @@ public final class AutoPlaybackService extends MediaLibraryService {
     @Override
     public void onCreate() {
         super.onCreate();
+        DefaultMediaNotificationProvider notificationProvider =
+                new DefaultMediaNotificationProvider.Builder(this).build();
+        notificationProvider.setSmallIcon(R.drawable.ic_notification);
+        setMediaNotificationProvider(notificationProvider);
+
         playlistStore = new LocalPlaylistStore(getApplicationContext());
         musicApi = new GdMusicApi();
         neteaseRepository = new NeteasePlaylistRepository();
