@@ -43,6 +43,7 @@ fun SearchResultsScreen(
     onLoadMore: () -> Unit,
     onImportPlaylist: (NeteasePlaylist, List<Track>, (Result<Unit>) -> Unit) -> Unit,
     onPlayPlaylist: (List<Track>, Int) -> Unit,
+    onPlaylistTrackClick: (List<Track>, Int) -> Unit,
     onTrackClick: (Int) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -151,6 +152,7 @@ fun SearchResultsScreen(
             onRetry = { loadPlaylist(playlist) },
             onMore = { morePlaylist = playlist },
             onPlayPlaylist = onPlayPlaylist,
+            onTrackClick = onPlaylistTrackClick,
             onPlayNext = onPlayNext,
             onAddToPlaylist = onAddToPlaylist,
             onFavorite = onFavorite,
@@ -371,6 +373,7 @@ private fun SearchedPlaylistDetail(
     onRetry: () -> Unit,
     onMore: () -> Unit,
     onPlayPlaylist: (List<Track>, Int) -> Unit,
+    onTrackClick: (List<Track>, Int) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -464,7 +467,7 @@ private fun SearchedPlaylistDetail(
                 ) { index, track ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        onClick = { onPlayPlaylist(tracks, index) }
+                        onClick = { onTrackClick(tracks, index) }
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth()

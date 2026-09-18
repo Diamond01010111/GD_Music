@@ -509,10 +509,19 @@ fun MusicApp(
                 AppPage.FAVORITE -> {
                     FavoriteScreen(
                         playlists = localPlaylists,
-                        onPlayPlaylist = { playlist, tracks, index ->
+                        onPlayAll = { playlist, tracks, index ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
                                 .recordLocalPlaylist(playlist)
                             onPlayResults(tracks, index)
+                        },
+                        onPlayTrack = { playlist, tracks, index ->
+                            com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
+                                .recordLocalPlaylist(playlist)
+                            if (queue.isEmpty()) {
+                                onPlayResults(tracks, index)
+                            } else {
+                                tracks.getOrNull(index)?.let(onPlaySingleTrack)
+                            }
                         },
                         onPlayNext = onPlayNext,
                         onAddToPlaylist = onAddToPlaylist,
@@ -541,10 +550,19 @@ fun MusicApp(
 
                 AppPage.NETEASE_PLAYLIST -> {
                     NeteasePlaylistScreen(
-                        onPlayPlaylist = { playlist, tracks, index ->
+                        onPlayAll = { playlist, tracks, index ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
                                 .recordPlaylist(playlist)
                             onPlayResults(tracks, index)
+                        },
+                        onPlayTrack = { playlist, tracks, index ->
+                            com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
+                                .recordPlaylist(playlist)
+                            if (queue.isEmpty()) {
+                                onPlayResults(tracks, index)
+                            } else {
+                                tracks.getOrNull(index)?.let(onPlaySingleTrack)
+                            }
                         },
                         onPlayNext = onPlayNext,
                         onAddToPlaylist = onAddToPlaylist,
@@ -598,8 +616,19 @@ fun MusicApp(
                         onLoadMore = ::loadNextSearchPage,
                         onImportPlaylist = onImportNeteasePlaylist,
                         onPlayPlaylist = onPlayResults,
+                        onPlaylistTrackClick = { tracks, index ->
+                            if (queue.isEmpty()) {
+                                onPlayResults(tracks, index)
+                            } else {
+                                tracks.getOrNull(index)?.let(onPlaySingleTrack)
+                            }
+                        },
                         onTrackClick = { index ->
-                            resultTracks.getOrNull(index)?.let(onPlaySingleTrack)
+                            if (queue.isEmpty()) {
+                                onPlayResults(resultTracks, index)
+                            } else {
+                                resultTracks.getOrNull(index)?.let(onPlaySingleTrack)
+                            }
                         },
                         onPlayNext = onPlayNext,
                         onAddToPlaylist = onAddToPlaylist,
