@@ -287,10 +287,13 @@ public final class AutoPlaybackService extends MediaLibraryService {
         return false;
     }
 
-    private static boolean isAndroidAutoController(
+    private boolean isAndroidAutoController(
             MediaSession.ControllerInfo controller
     ) {
-        return ANDROID_AUTO_PACKAGE.equals(controller.getPackageName());
+        return ANDROID_AUTO_PACKAGE.equals(controller.getPackageName())
+                || (mediaLibrarySession != null
+                && (mediaLibrarySession.isAutoCompanionController(controller)
+                || mediaLibrarySession.isAutomotiveController(controller)));
     }
 
     private void refreshCurrentArtworkFromCache() {
@@ -320,6 +323,10 @@ public final class AutoPlaybackService extends MediaLibraryService {
                             + controller.getPackageName()
                             + ", uid="
                             + controller.getUid()
+                            + ", androidAuto="
+                            + session.isAutoCompanionController(controller)
+                            + ", automotive="
+                            + session.isAutomotiveController(controller)
             );
             SessionCommands baseCommands = controller.isTrusted()
                     ? MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
@@ -566,8 +573,13 @@ public final class AutoPlaybackService extends MediaLibraryService {
             return;
         }
         List<CommandButton> buttons = favoriteButtonPreferences(track);
-        mediaLibrarySession.setMediaButtonPreferences(buttons);
-        mediaLibrarySession.setCustomLayout(buttons);
+        MediaSession.ControllerInfo notificationController =
+                mediaLibrarySession.getMediaNotificationControllerInfo();
+        if (notificationController == null) {
+            return;
+        }
+        mediaLibrarySession.setMediaButtonPreferences(notificationController, buttons);
+        mediaLibrarySession.setCustomLayout(notificationController, buttons);
     }
 
     private void requestAutoSearch(
