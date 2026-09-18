@@ -282,6 +282,37 @@ public class LocalPlaylistStore {
         return added;
     }
 
+    /**
+     * Removes a track from the pinned notification favorite collection.
+     *
+     * <p>The operation is intentionally idempotent: if the liked playlist or the track no
+     * longer exists, nothing is changed and {@code false} is returned.</p>
+     */
+    public boolean removeFromLiked(Track track) {
+        if (track == null) {
+            return false;
+        }
+
+        List<LocalPlaylist> playlists = getPlaylists();
+        for (LocalPlaylist playlist : playlists) {
+            if (!LIKED_PLAYLIST_NAME.equals(playlist.name)) {
+                continue;
+            }
+
+            for (int index = 0; index < playlist.tracks.size(); index++) {
+                if (sameTrack(playlist.tracks.get(index), track)) {
+                    playlist.tracks.remove(index);
+                    moveLikedPlaylistFirst(playlists);
+                    savePlaylists(playlists);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        return false;
+    }
+
     public boolean isLiked(Track track) {
         if (track == null) {
             return false;
