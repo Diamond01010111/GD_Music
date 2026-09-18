@@ -60,6 +60,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class AutoPlaybackService extends MediaLibraryService {
 
     private static final String SESSION_LOG_TAG = "GDMediaSession";
+    private static final String ANDROID_AUTO_PACKAGE =
+            "com.google.android.projection.gearhead";
     private static final String ROOT_ID = "root";
     private static final String SUGGESTED_ROOT_ID = "suggested";
     private static final String LIKED_RECOMMENDATION_ID = "suggested_liked_playlist";
@@ -203,15 +205,20 @@ public final class AutoPlaybackService extends MediaLibraryService {
 
     private void requestMissingArtwork(@Nullable MediaItem mediaItem) {
         Track track = TrackMediaItem.toTrack(mediaItem);
-        if (mediaItem == null
-                || track == null
-                || isPresent(track.picUrl)
-                || !isPresent(track.picId)
-                || !pendingArtworkItems.add(mediaItem.mediaId)) {
+        if (mediaItem == null || track == null || isPresent(track.picUrl)) {
             return;
         }
 
         String mediaId = mediaItem.mediaId;
+        Track cachedTrack = playbackTracks.get(mediaId);
+        if (cachedTrack != null && isPresent(cachedTrack.picUrl)) {
+            updateMediaItemArtwork(mediaId, cachedTrack.picUrl);
+            return;
+        }
+        if (!isPresent(track.picId) || !pendingArtworkItems.add(mediaId)) {
+            return;
+        }
+
         musicApi.getPicUrl(track, new GdMusicApi.TrackCallback() {
             @Override
             public void onSuccess(Track resolvedTrack) {
@@ -254,8 +261,49 @@ public final class AutoPlaybackService extends MediaLibraryService {
             }
             track.picUrl = artworkUrl;
             playbackTracks.put(mediaId, track);
+            if (isAndroidAutoConnected()) {
+                Log.d(
+                        SESSION_LOG_TAG,
+                        "Deferred artwork timeline update while Android Auto is connected: "
+                                + mediaId
+                );
+                return;
+            }
             player.replaceMediaItem(index, TrackMediaItem.create(mediaId, track));
             return;
+        }
+    }
+
+    private boolean isAndroidAutoConnected() {
+        if (mediaLibrarySession == null) {
+            return false;
+        }
+        for (MediaSession.ControllerInfo controller
+                : mediaLibrarySession.getConnectedControllers()) {
+            if (isAndroidAutoController(controller)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isAndroidAutoController(
+            MediaSession.ControllerInfo controller
+    ) {
+        return ANDROID_AUTO_PACKAGE.equals(controller.getPackageName());
+    }
+
+    private void refreshCurrentArtworkFromCache() {
+        if (destroyed || player == null) {
+            return;
+        }
+        MediaItem currentItem = player.getCurrentMediaItem();
+        if (currentItem == null) {
+            return;
+        }
+        Track cachedTrack = playbackTracks.get(currentItem.mediaId);
+        if (cachedTrack != null && isPresent(cachedTrack.picUrl)) {
+            updateMediaItemArtwork(currentItem.mediaId, cachedTrack.picUrl);
         }
     }
 
@@ -336,6 +384,9 @@ public final class AutoPlaybackService extends MediaLibraryService {
                             + controller.getUid()
             );
             MediaLibrarySession.Callback.super.onDisconnected(session, controller);
+            if (isAndroidAutoController(controller)) {
+                playbackHandler.post(() -> refreshCurrentArtworkFromCache());
+            }
         }
 
         @Override
