@@ -70,7 +70,8 @@ import com.diamond.gdmusic.ui.components.TrackMoreBottomSheet
 
 @Composable
 fun NeteasePlaylistScreen(
-    onPlayPlaylist: (NeteasePlaylist, List<Track>, Int) -> Unit,
+    onPlayAll: (NeteasePlaylist, List<Track>, Int) -> Unit,
+    onPlayTrack: (NeteasePlaylist, List<Track>, Int) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -201,7 +202,8 @@ fun NeteasePlaylistScreen(
             errorMessage = trackError,
             onBack = ::closePlaylistDetail,
             onRetry = { loadTracks(playlist) },
-            onPlayPlaylist = { tracks, index -> onPlayPlaylist(playlist, tracks, index) },
+            onPlayAll = { tracks, index -> onPlayAll(playlist, tracks, index) },
+            onPlayTrack = { tracks, index -> onPlayTrack(playlist, tracks, index) },
             onPlayNext = onPlayNext,
             onAddToPlaylist = onAddToPlaylist,
             onFavorite = onFavorite,
@@ -350,7 +352,8 @@ private fun PlaylistDetail(
     errorMessage: String?,
     onBack: () -> Unit,
     onRetry: () -> Unit,
-    onPlayPlaylist: (List<Track>, Int) -> Unit,
+    onPlayAll: (List<Track>, Int) -> Unit,
+    onPlayTrack: (List<Track>, Int) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -417,7 +420,7 @@ private fun PlaylistDetail(
                         )
                         Button(
                             enabled = tracks.isNotEmpty() && !isLoading,
-                            onClick = { onPlayPlaylist(tracks, 0) },
+                            onClick = { onPlayAll(tracks, 0) },
                             modifier = Modifier.padding(top = 8.dp)
                         ) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -466,7 +469,7 @@ private fun PlaylistDetail(
                 ) { index, track ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        onClick = { onPlayPlaylist(tracks, index) }
+                        onClick = { onPlayTrack(tracks, index) }
                     ) {
                         Row(
                             modifier = Modifier
@@ -602,6 +605,7 @@ private fun PlaylistCard(
             Text(
                 text = playlist.name,
                 style = MaterialTheme.typography.titleSmall,
+                minLines = 2,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 6.dp, top = 6.dp, end = 6.dp)

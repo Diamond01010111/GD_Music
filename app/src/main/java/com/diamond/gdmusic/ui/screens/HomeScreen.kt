@@ -216,7 +216,6 @@ fun HomeScreen(
     if (showAllRecommendations) {
         RecommendationListScreen(
             playlists = (recentlyBrowsedToplists + topLists).distinctBy { it.id },
-            recentlyBrowsedIds = recentlyBrowsedToplists.mapTo(mutableSetOf()) { it.id },
             isLoading = isLoadingTopLists,
             errorMessage = topListError,
             onBack = { showAllRecommendations = false },
@@ -370,10 +369,10 @@ private fun HomeContent(
                         HomePlaylistCard(
                             name = playlist.name,
                             coverUrl = playlist.coverUrl,
-                            subtitle = when {
-                                recentlyBrowsedToplists.any { it.id == playlist.id } -> "最近浏览"
-                                playlist.trackCount > 0 -> "${playlist.trackCount} 首歌曲"
-                                else -> "网易云榜单"
+                            subtitle = if (playlist.trackCount > 0) {
+                                "${playlist.trackCount} 首歌曲"
+                            } else {
+                                "网易云榜单"
                             },
                             onClick = { onOpenPlaylist(playlist, true) }
                         )
@@ -803,7 +802,6 @@ private fun HomePlaylistMoreSheet(
 @Composable
 private fun RecommendationListScreen(
     playlists: List<NeteasePlaylist>,
-    recentlyBrowsedIds: Set<String>,
     isLoading: Boolean,
     errorMessage: String?,
     onBack: () -> Unit,
@@ -840,7 +838,11 @@ private fun RecommendationListScreen(
                     HomePlaylistRow(
                         name = playlist.name,
                         coverUrl = playlist.coverUrl,
-                        subtitle = if (playlist.id in recentlyBrowsedIds) "最近浏览" else "${playlist.trackCount} 首歌曲",
+                        subtitle = if (playlist.trackCount > 0) {
+                            "${playlist.trackCount} 首歌曲"
+                        } else {
+                            "网易云榜单"
+                        },
                         onClick = { onOpenPlaylist(playlist) }
                     )
                 }
@@ -877,7 +879,7 @@ private fun AppDrawer(
     onDarkModeChange: (Boolean) -> Unit
 ) {
     var showQualityChoices by remember { mutableStateOf(false) }
-    ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.82f).fillMaxHeight()) {
+    ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.5f).fillMaxHeight()) {
         Text("GD Music", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
         ListItem(headlineContent = { Text("最近 5 分钟 GD 音乐台请求") }, supportingContent = { Text("$requestCount / 50") })
         HorizontalDivider()

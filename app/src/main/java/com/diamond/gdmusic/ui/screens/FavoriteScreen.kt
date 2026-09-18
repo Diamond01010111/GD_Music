@@ -20,7 +20,8 @@ import com.diamond.gdmusic.ui.components.TrackMoreBottomSheet
 @Composable
 fun FavoriteScreen(
     playlists: List<LocalPlaylistStore.LocalPlaylist>,
-    onPlayPlaylist: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
+    onPlayAll: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
+    onPlayTrack: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -42,7 +43,8 @@ fun FavoriteScreen(
         FavoriteDetail(
             favorite = selected,
             onBack = { selectedId = null },
-            onPlayPlaylist = onPlayPlaylist,
+            onPlayAll = onPlayAll,
+            onPlayTrack = onPlayTrack,
             onPlayNext = onPlayNext,
             onAddToPlaylist = onAddToPlaylist,
             onFavorite = onFavorite,
@@ -130,7 +132,8 @@ fun FavoriteScreen(
 private fun FavoriteDetail(
     favorite: LocalPlaylistStore.LocalPlaylist,
     onBack: () -> Unit,
-    onPlayPlaylist: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
+    onPlayAll: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
+    onPlayTrack: (LocalPlaylistStore.LocalPlaylist, List<Track>, Int) -> Unit,
     onPlayNext: (Track) -> Unit,
     onAddToPlaylist: (Track) -> Unit,
     onFavorite: (Track) -> Unit,
@@ -156,40 +159,47 @@ private fun FavoriteDetail(
             }
         }
 
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 24.dp)
         ) {
-            FavoriteCover(favorite.coverTrack, Modifier.size(112.dp))
-            Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                Text(favorite.name, style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    "${favorite.tracks.size} 首歌曲",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-                Button(
-                    enabled = favorite.tracks.isNotEmpty(),
-                    onClick = { onPlayPlaylist(favorite, favorite.tracks, 0) },
-                    modifier = Modifier.padding(top = 12.dp)
+            item(key = "favorite-header") {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                    Text("播放全部")
+                    FavoriteCover(favorite.coverTrack, Modifier.size(112.dp))
+                    Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                        Text(favorite.name, style = MaterialTheme.typography.headlineSmall)
+                        Text(
+                            "${favorite.tracks.size} 首歌曲",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                        Button(
+                            enabled = favorite.tracks.isNotEmpty(),
+                            onClick = { onPlayAll(favorite, favorite.tracks, 0) },
+                            modifier = Modifier.padding(top = 12.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Text("播放全部")
+                        }
+                    }
                 }
             }
-        }
-
-        if (favorite.tracks.isEmpty()) {
-            Text("收藏中还没有歌曲", Modifier.padding(20.dp))
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (favorite.tracks.isEmpty()) {
+                item(key = "favorite-empty") {
+                    Text("收藏中还没有歌曲", Modifier.padding(20.dp))
+                }
+            } else {
                 itemsIndexed(
                     favorite.tracks,
                     key = { index, track -> "${track.source}-${track.id}-$index" }
                 ) { index, track ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        onClick = { onPlayPlaylist(favorite, favorite.tracks, index) }
+                        onClick = { onPlayTrack(favorite, favorite.tracks, index) }
                     ) {
                         Row(
                             Modifier.fillMaxWidth().padding(14.dp),
