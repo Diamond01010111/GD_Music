@@ -178,6 +178,10 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 new AutoLibraryCallback()
         )
                 .setId("shared_playback")
+                // Android Auto was rebuilding its queue view on Media3's periodic position
+                // callbacks even when the timeline and current item had not changed. Controllers
+                // can extrapolate the playing position between real state/seek events.
+                .setPeriodicPositionUpdateEnabled(false)
                 .setSessionActivity(sessionActivity)
                 .setMediaButtonPreferences(favoriteButtonPreferences(null))
                 .setCustomLayout(favoriteButtonPreferences(null))
