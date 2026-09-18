@@ -454,8 +454,12 @@ fun MusicApp(
                             searchError = null
                             currentPage = AppPage.SEARCH
                         },
-                        onPlayHistoryTrack = { track ->
-                            onPlaySingleTrack(track)
+                        onPlayHistoryTrack = { tracks, index ->
+                            if (queue.isEmpty()) {
+                                onPlayResults(tracks, index)
+                            } else {
+                                tracks.getOrNull(index)?.let(onPlaySingleTrack)
+                            }
                         },
                         onPlayPlaylist = { playlist, tracks, index ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(
@@ -463,20 +467,28 @@ fun MusicApp(
                             ).recordPlaylist(playlist)
                             onPlayResults(tracks, index)
                         },
-                        onPlayPlaylistTrack = { playlist, track ->
+                        onPlayPlaylistTrack = { playlist, tracks, index ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
                                 .recordPlaylist(playlist)
-                            onPlaySingleTrack(track)
+                            if (queue.isEmpty()) {
+                                onPlayResults(tracks, index)
+                            } else {
+                                tracks.getOrNull(index)?.let(onPlaySingleTrack)
+                            }
                         },
                         onPlayLocalPlaylist = { playlist, tracks, index ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
                                 .recordLocalPlaylist(playlist)
                             onPlayResults(tracks, index)
                         },
-                        onPlayLocalPlaylistTrack = { playlist, track ->
+                        onPlayLocalPlaylistTrack = { playlist, tracks, index ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
                                 .recordLocalPlaylist(playlist)
-                            onPlaySingleTrack(track)
+                            if (queue.isEmpty()) {
+                                onPlayResults(tracks, index)
+                            } else {
+                                tracks.getOrNull(index)?.let(onPlaySingleTrack)
+                            }
                         },
                         onPlayNext = onPlayNext,
                         onAddToPlaylist = onAddToPlaylist,
