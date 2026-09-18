@@ -61,6 +61,8 @@ public final class AutoPlaybackService extends MediaLibraryService {
 
     private static final String SESSION_LOG_TAG = "GDMediaSession";
     private static final String ROOT_ID = "root";
+    private static final String SUGGESTED_ROOT_ID = "suggested";
+    private static final String LIKED_RECOMMENDATION_ID = "suggested_liked_playlist";
     private static final String FAVORITES_ID = "favorites";
     private static final String NETEASE_ID = "netease_playlists";
     private static final String NETEASE_CREATED_ID = "netease_created";
@@ -73,8 +75,8 @@ public final class AutoPlaybackService extends MediaLibraryService {
     private static final int AUTO_SEARCH_RESULT_COUNT = 30;
     private static final long AUDIO_URL_MAX_AGE_MS = 30L * 60L * 1000L;
     private static final long SOURCE_RESOLVE_TIMEOUT_SECONDS = 60L;
-    private static final SessionCommand ADD_TO_LIKED_COMMAND = new SessionCommand(
-            "com.diamond.gdapplication.command.ADD_TO_LIKED",
+    private static final SessionCommand TOGGLE_LIKED_COMMAND = new SessionCommand(
+            "com.diamond.gdapplication.command.TOGGLE_LIKED",
             Bundle.EMPTY
     );
 
@@ -275,7 +277,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                     ? MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS
                     : MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_AND_LIBRARY_COMMANDS;
             SessionCommands availableCommands = baseCommands.buildUpon()
-                    .add(ADD_TO_LIKED_COMMAND)
+                    .add(TOGGLE_LIKED_COMMAND)
                     .build();
             List<CommandButton> buttons = favoriteButtonPreferences(
                     TrackMediaItem.toTrack(player.getCurrentMediaItem())
@@ -294,7 +296,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 SessionCommand customCommand,
                 Bundle args
         ) {
-            if (!ADD_TO_LIKED_COMMAND.equals(customCommand)) {
+            if (!TOGGLE_LIKED_COMMAND.equals(customCommand)) {
                 return MediaLibrarySession.Callback.super.onCustomCommand(
                         session,
                         controller,
@@ -310,7 +312,11 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 );
             }
             playlistStore = new LocalPlaylistStore(getApplicationContext());
-            playlistStore.addToLiked(current);
+            if (playlistStore.isLiked(current)) {
+                playlistStore.removeFromLiked(current);
+            } else {
+                playlistStore.addToLiked(current);
+            }
             updateFavoriteButton(current);
             return Futures.immediateFuture(
                     new SessionResult(SessionResult.RESULT_SUCCESS)
@@ -338,9 +344,15 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 MediaSession.ControllerInfo browser,
                 @Nullable LibraryParams params
         ) {
+            String rootId = params != null && params.isSuggested
+                    ? SUGGESTED_ROOT_ID
+                    : ROOT_ID;
+            String rootTitle = params != null && params.isSuggested
+                    ? LocalPlaylistStore.LIKED_PLAYLIST_NAME
+                    : getString(R.string.app_name);
             return Futures.immediateFuture(
                     LibraryResult.ofItem(
-                            browsableItem(ROOT_ID, getString(R.string.app_name)),
+                            browsableItem(rootId, rootTitle),
                             params
                     )
             );
@@ -488,8 +500,8 @@ public final class AutoPlaybackService extends MediaLibraryService {
         CommandButton button = new CommandButton.Builder(
                 liked ? CommandButton.ICON_HEART_FILLED : CommandButton.ICON_HEART_UNFILLED
         )
-                .setSessionCommand(ADD_TO_LIKED_COMMAND)
-                .setDisplayName(liked ? "已加入我喜欢的" : "加入我喜欢的")
+                .setSessionCommand(TOGGLE_LIKED_COMMAND)
+                .setDisplayName(liked ? "取消喜欢" : "加入我喜欢的")
                 .setSlots(
                         CommandButton.SLOT_FORWARD_SECONDARY,
                         CommandButton.SLOT_OVERFLOW
@@ -572,6 +584,14 @@ public final class AutoPlaybackService extends MediaLibraryService {
     private List<MediaItem> childrenFor(String parentId) {
         List<MediaItem> items = new ArrayList<>();
 
+        if (SUGGESTED_ROOT_ID.equals(parentId)) {
+            LocalPlaylistStore.LocalPlaylist liked = findLikedPlaylist();
+            if (liked != null && !liked.tracks.isEmpty()) {
+                items.add(playablePlaylistItem(LIKED_RECOMMENDATION_ID, liked));
+            }
+            return items;
+        }
+
         if (ROOT_ID.equals(parentId)) {
             items.add(browsableItem(FAVORITES_ID, getString(R.string.auto_favorites)));
             items.add(browsableItem(NETEASE_ID, getString(R.string.auto_netease_playlists)));
@@ -644,6 +664,16 @@ public final class AutoPlaybackService extends MediaLibraryService {
         if (ROOT_ID.equals(mediaId)) {
             return browsableItem(ROOT_ID, getString(R.string.app_name));
         }
+        if (SUGGESTED_ROOT_ID.equals(mediaId)) {
+            return browsableItem(
+                    SUGGESTED_ROOT_ID,
+                    LocalPlaylistStore.LIKED_PLAYLIST_NAME
+            );
+        }
+        if (LIKED_RECOMMENDATION_ID.equals(mediaId)) {
+            LocalPlaylistStore.LocalPlaylist liked = findLikedPlaylist();
+            return liked == null ? null : playablePlaylistItem(mediaId, liked);
+        }
         if (FAVORITES_ID.equals(mediaId)) {
             return browsableItem(FAVORITES_ID, getString(R.string.auto_favorites));
         }
@@ -686,6 +716,26 @@ public final class AutoPlaybackService extends MediaLibraryService {
                         .setIsPlayable(false)
                         .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS)
                         .build())
+                .build();
+    }
+
+    private MediaItem playablePlaylistItem(
+            String mediaId,
+            LocalPlaylistStore.LocalPlaylist playlist
+    ) {
+        MediaMetadata.Builder metadata = new MediaMetadata.Builder()
+                .setTitle(playlist.name)
+                .setSubtitle(playlist.tracks.size() + " 首歌曲")
+                .setIsBrowsable(false)
+                .setIsPlayable(true)
+                .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST);
+        Track cover = playlist.getCoverTrack();
+        if (cover != null && isPresent(cover.picUrl)) {
+            metadata.setArtworkUri(Uri.parse(cover.picUrl));
+        }
+        return new MediaItem.Builder()
+                .setMediaId(mediaId)
+                .setMediaMetadata(metadata.build())
                 .build();
     }
 
@@ -1056,6 +1106,22 @@ public final class AutoPlaybackService extends MediaLibraryService {
         }
 
         String mediaId = requested.get(0).mediaId;
+        if (LIKED_RECOMMENDATION_ID.equals(mediaId)) {
+            LocalPlaylistStore.LocalPlaylist liked = findLikedPlaylist();
+            if (liked == null || liked.tracks.isEmpty()) {
+                return new QueueExpansion(Collections.emptyList(), 0);
+            }
+
+            List<MediaItem> likedItems = new ArrayList<>();
+            for (int index = 0; index < liked.tracks.size(); index++) {
+                likedItems.add(trackItem(
+                        localTrackId(liked.id, index),
+                        liked.tracks.get(index)
+                ));
+            }
+            return new QueueExpansion(likedItems, 0);
+        }
+
         boolean netease = mediaId.startsWith(NETEASE_TRACK_PREFIX);
         String prefix = netease ? NETEASE_TRACK_PREFIX : TRACK_PREFIX;
         if (!mediaId.startsWith(prefix)) {
@@ -1167,6 +1233,17 @@ public final class AutoPlaybackService extends MediaLibraryService {
         playlistStore = new LocalPlaylistStore(getApplicationContext());
         for (LocalPlaylistStore.LocalPlaylist playlist : playlistStore.getPlaylists()) {
             if (playlist.id.equals(playlistId)) {
+                return playlist;
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    private LocalPlaylistStore.LocalPlaylist findLikedPlaylist() {
+        playlistStore = new LocalPlaylistStore(getApplicationContext());
+        for (LocalPlaylistStore.LocalPlaylist playlist : playlistStore.getPlaylists()) {
+            if (LocalPlaylistStore.LIKED_PLAYLIST_NAME.equals(playlist.name)) {
                 return playlist;
             }
         }
