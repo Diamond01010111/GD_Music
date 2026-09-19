@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,6 +90,7 @@ fun HomeScreen(
     darkMode: Boolean,
     onDefaultBitrateChange: (Int) -> Unit,
     onDarkModeChange: (Boolean) -> Unit,
+    onClearCache: () -> Unit,
     onOpenSearch: () -> Unit,
     onPlayHistoryTrack: (List<Track>, Int) -> Unit,
     onPlayPlaylist: (NeteasePlaylist, List<Track>, Int) -> Unit,
@@ -216,7 +218,7 @@ fun HomeScreen(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            AppDrawer(requestCount, defaultBitrate, darkMode, onDefaultBitrateChange, onDarkModeChange)
+            AppDrawer(requestCount, defaultBitrate, darkMode, onDefaultBitrateChange, onDarkModeChange, onClearCache)
         }
     ) {
         HomeContent(
@@ -790,9 +792,27 @@ private fun AppDrawer(
     defaultBitrate: Int,
     darkMode: Boolean,
     onDefaultBitrateChange: (Int) -> Unit,
-    onDarkModeChange: (Boolean) -> Unit
+    onDarkModeChange: (Boolean) -> Unit,
+    onClearCache: () -> Unit
 ) {
     var showQualityChoices by remember { mutableStateOf(false) }
+    var confirmClearCache by remember { mutableStateOf(false) }
+    if (confirmClearCache) {
+        AlertDialog(
+            onDismissRequest = { confirmClearCache = false },
+            title = { Text("清理缓存？") },
+            text = { Text("将清理封面图片、歌词、歌单及推荐缓存，之后按需重新加载。\n\n收藏、我喜欢的、最近播放、搜索和浏览记录、网易云用户 ID、设置及 API 请求计数会保留，当前播放和队列不受影响。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClearCache = false
+                    onClearCache()
+                }) { Text("清理") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearCache = false }) { Text("取消") }
+            }
+        )
+    }
     ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.5f).fillMaxHeight()) {
         Text("GD Music", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
         ListItem(headlineContent = { Text("最近 5 分钟 GD 音乐台请求") }, supportingContent = { Text("$requestCount / 50") })
@@ -819,6 +839,12 @@ private fun AppDrawer(
             headlineContent = { Text("深色模式") },
             trailingContent = { Switch(checked = darkMode, onCheckedChange = onDarkModeChange) },
             modifier = Modifier.fillMaxWidth().clickable { onDarkModeChange(!darkMode) }
+        )
+        NavigationDrawerItem(
+            label = { Text("清理缓存") },
+            selected = false,
+            onClick = { confirmClearCache = true },
+            modifier = Modifier.padding(horizontal = 12.dp)
         )
         Spacer(Modifier.weight(1f))
     }

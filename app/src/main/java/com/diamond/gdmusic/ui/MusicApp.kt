@@ -104,6 +104,7 @@ fun MusicApp(
     onChangeCurrentQuality: (Track, Int, (Result<Unit>) -> Unit) -> Unit,
     onDefaultBitrateChange: (Int) -> Unit,
     onDarkModeChange: (Boolean) -> Unit,
+    onClearCache: () -> Unit,
     onShowLyricTranslationChange: (Boolean) -> Unit,
 
     onPlayResults: (
@@ -450,6 +451,7 @@ fun MusicApp(
                         darkMode = darkMode,
                         onDefaultBitrateChange = onDefaultBitrateChange,
                         onDarkModeChange = onDarkModeChange,
+                        onClearCache = onClearCache,
                         onOpenSearch = {
                             searchError = null
                             currentPage = AppPage.SEARCH

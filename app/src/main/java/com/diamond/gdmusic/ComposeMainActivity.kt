@@ -11,9 +11,12 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,14 +46,20 @@ class ComposeMainActivity : ComponentActivity() {
     private var mediaController by mutableStateOf<MediaController?>(null)
     private var lastRootBackAt = 0L
     private val lyricCache = ConcurrentHashMap<String, Track>()
+    private val clearCacheListener = Runnable {
+        lyricCache.clear()
+        neteaseRepository = NeteasePlaylistRepository()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        AppCaches.initializeImages(applicationContext)
         enableEdgeToEdge()
         api = GdMusicApi()
         localPlaylistStore = LocalPlaylistStore(this)
         neteaseRepository = NeteasePlaylistRepository()
+        AppCaches.addListener(clearCacheListener)
         requestNotificationPermission()
         connectToPlaybackService()
 
@@ -170,190 +179,199 @@ class ComposeMainActivity : ComponentActivity() {
                     }
                 }
 
-                MusicApp(
-                    nowPlayingTrack = currentTrack,
-                    artworkUrl = artworkUrl,
-                    isPlaying = isPlaying,
-                    playMode = playMode,
-                    queue = queue,
-                    currentIndex = currentIndex,
-                    playbackProgress = playbackProgress,
-                    playbackPositionMs = playbackPositionMs,
-                    playbackDurationMs = playbackDurationMs,
-                    localPlaylists = localPlaylists,
-                    defaultBitrate = defaultBitrate,
-                    darkMode = darkMode,
-                    showLyricTranslation = showLyricTranslation,
+                val cacheState by AppCaches.state.collectAsState()
+                if (cacheState.clearing) {
+                    androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) { androidx.compose.material3.Text("正在清理缓存…") }
+                } else key(cacheState.revision) {
+                    MusicApp(
+                        nowPlayingTrack = currentTrack,
+                        artworkUrl = artworkUrl,
+                        isPlaying = isPlaying,
+                        playMode = playMode,
+                        queue = queue,
+                        currentIndex = currentIndex,
+                        playbackProgress = playbackProgress,
+                        playbackPositionMs = playbackPositionMs,
+                        playbackDurationMs = playbackDurationMs,
+                        localPlaylists = localPlaylists,
+                        defaultBitrate = defaultBitrate,
+                        darkMode = darkMode,
+                        showLyricTranslation = showLyricTranslation,
 
-                    onRequestSearch = { keyword, category, source, page, callback ->
-                        requestTracks(keyword, category, source, page, callback)
-                    },
+                        onRequestSearch = { keyword, category, source, page, callback ->
+                            requestTracks(keyword, category, source, page, callback)
+                        },
 
-                    onRequestLyrics = ::requestLyrics,
-                    onSwitchCurrentSource = ::switchCurrentSource,
-                    onChangeCurrentQuality = ::changeCurrentQuality,
+                        onClearCache = { AppCaches.clear(this) },
+                        onRequestLyrics = ::requestLyrics,
+                        onSwitchCurrentSource = ::switchCurrentSource,
+                        onChangeCurrentQuality = ::changeCurrentQuality,
 
-                    onRequestNeteasePlaylists = ::requestNeteasePlaylists,
-                    onImportNeteasePlaylist = { playlist, tracks, callback ->
-                        importNeteasePlaylist(playlist, tracks) { result ->
-                            if (result.isSuccess) {
-                                localPlaylists = localPlaylistStore.playlists
+                        onRequestNeteasePlaylists = ::requestNeteasePlaylists,
+                        onImportNeteasePlaylist = { playlist, tracks, callback ->
+                            importNeteasePlaylist(playlist, tracks) { result ->
+                                if (result.isSuccess) {
+                                    localPlaylists = localPlaylistStore.playlists
+                                }
+                                callback(result)
                             }
-                            callback(result)
-                        }
-                    },
+                        },
 
-                    onDefaultBitrateChange = { bitrate ->
-                        PlaybackPreferences.setDefaultBitrate(this, bitrate)
-                        defaultBitrate = AudioQuality.fromBitrate(bitrate).bitrate
-                    },
-                    onDarkModeChange = { enabled ->
-                        PlaybackPreferences.setDarkMode(this, enabled)
-                        darkMode = enabled
-                    },
-                    onShowLyricTranslationChange = { enabled ->
-                        PlaybackPreferences.setShowLyricTranslation(this, enabled)
-                        showLyricTranslation = enabled
-                    },
+                        onDefaultBitrateChange = { bitrate ->
+                            PlaybackPreferences.setDefaultBitrate(this, bitrate)
+                            defaultBitrate = AudioQuality.fromBitrate(bitrate).bitrate
+                        },
+                        onDarkModeChange = { enabled ->
+                            PlaybackPreferences.setDarkMode(this, enabled)
+                            darkMode = enabled
+                        },
+                        onShowLyricTranslationChange = { enabled ->
+                            PlaybackPreferences.setShowLyricTranslation(this, enabled)
+                            showLyricTranslation = enabled
+                        },
 
-                    onPlayResults = ::playTracks,
-                    onPlaySingleTrack = ::playSingleTrack,
+                        onPlayResults = ::playTracks,
+                        onPlaySingleTrack = ::playSingleTrack,
 
-                    onRecommendedSongClick = ::searchAndPlayFirst,
+                        onRecommendedSongClick = ::searchAndPlayFirst,
 
-                    onPlayPause = {
-                        controllerOrWarn()?.let { player ->
-                            if (player.isPlaying) player.pause() else player.play()
-                        }
-                    },
-
-                    onSwitchPlayMode = ::switchPlaybackMode,
-
-                    onSkipPrevious = {
-                        controllerOrWarn()?.let { player ->
-                            player.seekToPreviousMediaItem()
-                            player.prepare()
-                            player.play()
-                        }
-                    },
-
-                    onSkipNext = {
-                        controllerOrWarn()?.let { player ->
-                            player.seekToNextMediaItem()
-                            player.prepare()
-                            player.play()
-                        }
-                    },
-
-                    onSeekTo = { positionMs ->
-                        controllerOrWarn()?.seekTo(positionMs.coerceAtLeast(0L))
-                    },
-
-                    onQueueTrackClick = { index ->
-                        controllerOrWarn()?.let { player ->
-                            if (index in 0 until player.mediaItemCount) {
-                                player.seekToDefaultPosition(index)
-                                player.play()
+                        onPlayPause = {
+                            controllerOrWarn()?.let { player ->
+                                if (player.isPlaying) player.pause() else player.play()
                             }
-                        }
-                    },
+                        },
 
-                    onRemoveQueueTrack = { index ->
-                        controllerOrWarn()?.let { player ->
-                            if (index in 0 until player.mediaItemCount) {
-                                player.removeMediaItem(index)
-                                showToast("已从播放列表删除")
-                            }
-                        }
-                    },
+                        onSwitchPlayMode = ::switchPlaybackMode,
 
-                    onClearQueue = {
-                        controllerOrWarn()?.let { player ->
-                            player.stop()
-                            player.clearMediaItems()
-                            showToast("播放列表已清空")
-                        }
-                    },
-
-                    onPlayNext = { track ->
-                        controllerOrWarn()?.let { player ->
-                            val item = phoneMediaItem(track, player.mediaItemCount)
-                            if (player.mediaItemCount == 0) {
-                                player.setMediaItem(item)
+                        onSkipPrevious = {
+                            controllerOrWarn()?.let { player ->
+                                player.seekToPreviousMediaItem()
                                 player.prepare()
                                 player.play()
-                            } else {
-                                val insertAt = (player.currentMediaItemIndex + 1)
-                                    .coerceAtMost(player.mediaItemCount)
-                                player.addMediaItem(insertAt, item)
                             }
-                            showToast("下一首播放：${track.name}")
-                        }
-                    },
+                        },
 
-                    onAddToPlaylist = { track ->
-                        controllerOrWarn()?.let { player ->
-                            player.addMediaItem(phoneMediaItem(track, player.mediaItemCount))
-                            showToast("已加入播放列表：${track.name}")
-                        }
-                    },
+                        onSkipNext = {
+                            controllerOrWarn()?.let { player ->
+                                player.seekToNextMediaItem()
+                                player.prepare()
+                                player.play()
+                            }
+                        },
 
-                    onCreateLocalPlaylist = { name, track ->
-                        saveWithArtwork(track) { resolvedTrack ->
-                            val playlist = localPlaylistStore.createPlaylist(name, resolvedTrack)
+                        onSeekTo = { positionMs ->
+                            controllerOrWarn()?.seekTo(positionMs.coerceAtLeast(0L))
+                        },
+
+                        onQueueTrackClick = { index ->
+                            controllerOrWarn()?.let { player ->
+                                if (index in 0 until player.mediaItemCount) {
+                                    player.seekToDefaultPosition(index)
+                                    player.play()
+                                }
+                            }
+                        },
+
+                        onRemoveQueueTrack = { index ->
+                            controllerOrWarn()?.let { player ->
+                                if (index in 0 until player.mediaItemCount) {
+                                    player.removeMediaItem(index)
+                                    showToast("已从播放列表删除")
+                                }
+                            }
+                        },
+
+                        onClearQueue = {
+                            controllerOrWarn()?.let { player ->
+                                player.stop()
+                                player.clearMediaItems()
+                                showToast("播放列表已清空")
+                            }
+                        },
+
+                        onPlayNext = { track ->
+                            controllerOrWarn()?.let { player ->
+                                val item = phoneMediaItem(track, player.mediaItemCount)
+                                if (player.mediaItemCount == 0) {
+                                    player.setMediaItem(item)
+                                    player.prepare()
+                                    player.play()
+                                } else {
+                                    val insertAt = (player.currentMediaItemIndex + 1)
+                                        .coerceAtMost(player.mediaItemCount)
+                                    player.addMediaItem(insertAt, item)
+                                }
+                                showToast("下一首播放：${track.name}")
+                            }
+                        },
+
+                        onAddToPlaylist = { track ->
+                            controllerOrWarn()?.let { player ->
+                                player.addMediaItem(phoneMediaItem(track, player.mediaItemCount))
+                                showToast("已加入播放列表：${track.name}")
+                            }
+                        },
+
+                        onCreateLocalPlaylist = { name, track ->
+                            saveWithArtwork(track) { resolvedTrack ->
+                                val playlist = localPlaylistStore.createPlaylist(name, resolvedTrack)
+                                localPlaylists = localPlaylistStore.playlists
+                                if (playlist != null) {
+                                    showToast("已创建收藏并添加：${track.name}")
+                                } else {
+                                    showToast("收藏名称不能为空")
+                                }
+                            }
+                        },
+
+                        onCreateEmptyFavorite = { name ->
+                            val favorite = localPlaylistStore.createPlaylist(name)
                             localPlaylists = localPlaylistStore.playlists
-                            if (playlist != null) {
-                                showToast("已创建收藏并添加：${track.name}")
+                            if (favorite != null) {
+                                showToast("已创建收藏：${favorite.name}")
                             } else {
                                 showToast("收藏名称不能为空")
                             }
-                        }
-                    },
+                        },
 
-                    onCreateEmptyFavorite = { name ->
-                        val favorite = localPlaylistStore.createPlaylist(name)
-                        localPlaylists = localPlaylistStore.playlists
-                        if (favorite != null) {
-                            showToast("已创建收藏：${favorite.name}")
-                        } else {
-                            showToast("收藏名称不能为空")
-                        }
-                    },
+                        onAddToLocalPlaylist = { playlistId, track ->
+                            saveWithArtwork(track) { resolvedTrack ->
+                                val added = localPlaylistStore.addTrackToPlaylist(
+                                    playlistId,
+                                    resolvedTrack
+                                )
+                                localPlaylists = localPlaylistStore.playlists
+                                if (added) {
+                                    showToast("已收藏：${track.name}")
+                                } else {
+                                    showToast("歌曲已在该收藏中")
+                                }
+                            }
+                        },
 
-                    onAddToLocalPlaylist = { playlistId, track ->
-                        saveWithArtwork(track) { resolvedTrack ->
-                            val added = localPlaylistStore.addTrackToPlaylist(
+                        onDeleteFavorite = { favoriteId ->
+                            val deleted = localPlaylistStore.deletePlaylist(favoriteId)
+                            localPlaylists = localPlaylistStore.playlists
+                            showToast(if (deleted) "收藏已删除" else "删除收藏失败")
+                        },
+
+                        onRemoveLocalPlaylistTrack = { playlistId, track ->
+                            val removed = localPlaylistStore.removeTrackFromPlaylist(
                                 playlistId,
-                                resolvedTrack
+                                track
                             )
                             localPlaylists = localPlaylistStore.playlists
-                            if (added) {
-                                showToast("已收藏：${track.name}")
-                            } else {
-                                showToast("歌曲已在该收藏中")
-                            }
-                        }
-                    },
+                            showToast(
+                                if (removed) "已移出当前收藏：${track.name}" else "移出收藏失败"
+                            )
+                        },
 
-                    onDeleteFavorite = { favoriteId ->
-                        val deleted = localPlaylistStore.deletePlaylist(favoriteId)
-                        localPlaylists = localPlaylistStore.playlists
-                        showToast(if (deleted) "收藏已删除" else "删除收藏失败")
-                    },
-
-                    onRemoveLocalPlaylistTrack = { playlistId, track ->
-                        val removed = localPlaylistStore.removeTrackFromPlaylist(
-                            playlistId,
-                            track
-                        )
-                        localPlaylists = localPlaylistStore.playlists
-                        showToast(
-                            if (removed) "已移出当前收藏：${track.name}" else "移出收藏失败"
-                        )
-                    },
-
-                    onRootBack = ::handleRootBack
-                )
+                        onRootBack = ::handleRootBack
+                    )
+                }
             }
         }
     }
@@ -570,6 +588,7 @@ class ComposeMainActivity : ComponentActivity() {
         preferredSource: String?,
         callback: (Result<Track>) -> Unit
     ) {
+        val generation = CacheGeneration.current()
         val cacheKey = lyricCacheKey(track, preferredSource)
         lyricCache[cacheKey]?.let { cached ->
             callback(Result.success(cached))
@@ -581,9 +600,13 @@ class ComposeMainActivity : ComponentActivity() {
             preferredSource,
             object : GdMusicApi.TrackCallback {
                 override fun onSuccess(updatedTrack: Track) {
-                    lyricCache[cacheKey] = updatedTrack
-                    lyricCache[lyricCacheKey(track, updatedTrack.source)] = updatedTrack
-                    runOnUiThread { callback(Result.success(updatedTrack)) }
+                    runOnUiThread {
+                        CacheGeneration.runIfCurrent(generation) {
+                            lyricCache[cacheKey] = updatedTrack
+                            lyricCache[lyricCacheKey(track, updatedTrack.source)] = updatedTrack
+                            callback(Result.success(updatedTrack))
+                        }
+                    }
                 }
 
                 override fun onError(e: Exception) {
@@ -714,6 +737,7 @@ class ComposeMainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        AppCaches.removeListener(clearCacheListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         mediaController = null

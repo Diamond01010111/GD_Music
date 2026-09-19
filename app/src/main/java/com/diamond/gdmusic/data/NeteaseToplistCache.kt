@@ -23,6 +23,11 @@ object NeteaseToplistCache {
             .apply()
     }
 
+    // Keep browsing history, which controls the user's recommendation ordering.
+    fun clearCachedToplists(context: Context) {
+        preferences(context).edit().remove(TOPLISTS_KEY).remove(LAST_REFRESH_KEY).apply()
+    }
+
     fun shouldRefresh(context: Context): Boolean {
         val lastRefresh = preferences(context).getLong(LAST_REFRESH_KEY, 0L)
         return lastRefresh == 0L || System.currentTimeMillis() - lastRefresh >= REFRESH_INTERVAL_MS
