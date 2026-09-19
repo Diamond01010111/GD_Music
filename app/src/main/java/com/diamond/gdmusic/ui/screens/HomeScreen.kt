@@ -1,6 +1,8 @@
 package com.diamond.gdmusic.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -814,38 +816,40 @@ private fun AppDrawer(
         )
     }
     ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.5f).fillMaxHeight()) {
-        Text("GD Music", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(20.dp))
-        ListItem(headlineContent = { Text("最近 5 分钟 GD 音乐台请求") }, supportingContent = { Text("$requestCount / 50") })
-        HorizontalDivider()
-        Text("设置", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp))
-        NavigationDrawerItem(
-            label = { Text("默认音质：${AudioQuality.fromBitrate(defaultBitrate).label}") },
-            selected = false,
-            icon = { Icon(Icons.Default.LibraryMusic, contentDescription = null) },
-            onClick = { showQualityChoices = !showQualityChoices },
-            modifier = Modifier.padding(horizontal = 12.dp)
-        )
-        if (showQualityChoices) {
-            AudioQuality.entries.forEach { quality ->
-                NavigationDrawerItem(
-                    label = { Text(quality.label) },
-                    selected = quality.bitrate == defaultBitrate,
-                    onClick = { onDefaultBitrateChange(quality.bitrate); showQualityChoices = false },
-                    modifier = Modifier.padding(start = 32.dp, end = 12.dp)
-                )
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        ) {
+            ListItem(headlineContent = { Text("最近 5 分钟 GD 音乐台请求") }, supportingContent = { Text("$requestCount / 50") })
+            ListItem(
+                headlineContent = { Text("深色模式") },
+                trailingContent = { Switch(checked = darkMode, onCheckedChange = onDarkModeChange) },
+                modifier = Modifier.fillMaxWidth().clickable { onDarkModeChange(!darkMode) }
+            )
+            HorizontalDivider()
+            Text("设置", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp))
+            NavigationDrawerItem(
+                label = { Text("默认音质：${AudioQuality.fromBitrate(defaultBitrate).label}") },
+                selected = false,
+                icon = { Icon(Icons.Default.LibraryMusic, contentDescription = null) },
+                onClick = { showQualityChoices = !showQualityChoices },
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
+            if (showQualityChoices) {
+                AudioQuality.entries.forEach { quality ->
+                    NavigationDrawerItem(
+                        label = { Text(quality.label) },
+                        selected = quality.bitrate == defaultBitrate,
+                        onClick = { onDefaultBitrateChange(quality.bitrate); showQualityChoices = false },
+                        modifier = Modifier.padding(start = 32.dp, end = 12.dp)
+                    )
+                }
             }
+            NavigationDrawerItem(
+                label = { Text("清理缓存") },
+                selected = false,
+                onClick = { confirmClearCache = true },
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
         }
-        ListItem(
-            headlineContent = { Text("深色模式") },
-            trailingContent = { Switch(checked = darkMode, onCheckedChange = onDarkModeChange) },
-            modifier = Modifier.fillMaxWidth().clickable { onDarkModeChange(!darkMode) }
-        )
-        NavigationDrawerItem(
-            label = { Text("清理缓存") },
-            selected = false,
-            onClick = { confirmClearCache = true },
-            modifier = Modifier.padding(horizontal = 12.dp)
-        )
-        Spacer(Modifier.weight(1f))
     }
 }
