@@ -38,7 +38,12 @@ class NeteasePlaylistRepository {
     private val client = OkHttpClient.Builder()
         .callTimeout(20, TimeUnit.SECONDS)
         .build()
+    private val cacheGeneration = com.diamond.gdmusic.CacheGeneration.current()
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun <T> currentResult(result: Result<T>): Result<T> =
+        if (com.diamond.gdmusic.CacheGeneration.isCurrent(cacheGeneration)) result
+        else Result.failure(java.util.concurrent.CancellationException("缓存已清理，请重新加载"))
 
     fun loadPublicPlaylists(
         userId: String,
@@ -314,6 +319,10 @@ class NeteasePlaylistRepository {
         playlists: MutableList<NeteasePlaylist>,
         callback: (Result<List<NeteasePlaylist>>) -> Unit
     ) {
+        if (!com.diamond.gdmusic.CacheGeneration.isCurrent(cacheGeneration)) {
+            deliver(callback, currentResult(Result.success(emptyList())))
+            return
+        }
         val url = USER_PLAYLIST_URL.toHttpUrl().newBuilder()
             .addQueryParameter("uid", userId)
             .addQueryParameter("limit", PAGE_SIZE.toString())
@@ -402,6 +411,12 @@ class NeteasePlaylistRepository {
         transform: (JSONObject) -> T
     ): PendingResult<T> {
         return PendingResult { callback ->
+            if (!com.diamond.gdmusic.CacheGeneration.isCurrent(cacheGeneration)) {
+                deliverResult(callback, Result.failure(
+                    java.util.concurrent.CancellationException("缓存已清理，请重新加载")
+                ))
+                return@PendingResult
+            }
             client.newCall(request).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     deliverResult(callback, Result.failure(e))
@@ -479,7 +494,7 @@ class NeteasePlaylistRepository {
         result: Result<List<NeteasePlaylist>>
     ) {
         mainHandler.post {
-            callback(result)
+            callback(currentResult(result))
         }
     }
 
@@ -487,7 +502,7 @@ class NeteasePlaylistRepository {
         callback: (Result<T>) -> Unit,
         result: Result<T>
     ) {
-        mainHandler.post { callback(result) }
+        mainHandler.post { callback(currentResult(result)) }
     }
 
     private class PendingResult<T>(

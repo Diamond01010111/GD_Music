@@ -98,6 +98,38 @@ public final class AutoPlaybackService extends MediaLibraryService {
     private final Set<String> failedPlaybackItems = ConcurrentHashMap.newKeySet();
     private Handler playbackHandler;
     private volatile boolean destroyed;
+    private final Runnable clearCacheListener = this::clearBrowsingCaches;
+
+    /** Called on the main thread; never changes the player timeline or position. */
+    private void clearBrowsingCaches() {
+        List<String> playlistIds = new ArrayList<>(neteaseTracks.keySet());
+        List<String> queries = new ArrayList<>(autoSearchResults.keySet());
+        neteasePlaylists.clear();
+        neteaseTracks.clear();
+        autoSearchResults.clear();
+        pendingArtworkItems.clear();
+        neteaseRepository = new NeteasePlaylistRepository();
+        Set<String> queuedIds = new java.util.HashSet<>();
+        for (int index = 0; index < player.getMediaItemCount(); index++) {
+            queuedIds.add(player.getMediaItemAt(index).mediaId);
+        }
+        playbackTracks.keySet().retainAll(queuedIds);
+        for (Track track : playbackTracks.values()) {
+            track.lyric = "";
+            track.translatedLyric = "";
+        }
+        // Force connected browsers to ask for fresh children on their next visit.
+        mediaLibrarySession.notifyChildrenChanged(NETEASE_CREATED_ID, 0, null);
+        mediaLibrarySession.notifyChildrenChanged(NETEASE_SUBSCRIBED_ID, 0, null);
+        for (String id : playlistIds) {
+            mediaLibrarySession.notifyChildrenChanged(NETEASE_PLAYLIST_PREFIX + id, 0, null);
+        }
+        for (MediaSession.ControllerInfo controller : mediaLibrarySession.getConnectedControllers()) {
+            for (String query : queries) {
+                mediaLibrarySession.notifySearchResultChanged(controller, query, 0, null);
+            }
+        }
+    }
 
     @Override
     public void onCreate() {
@@ -192,6 +224,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 .setMediaButtonPreferences(favoriteButtonPreferences(null))
                 .setCustomLayout(favoriteButtonPreferences(null))
                 .build();
+        AppCaches.addListener(clearCacheListener);
     }
 
     @Nullable
@@ -203,6 +236,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
     @Override
     public void onDestroy() {
         destroyed = true;
+        AppCaches.removeListener(clearCacheListener);
         pendingArtworkItems.clear();
         sourceRecoveryItems.clear();
         failedPlaybackItems.clear();
@@ -229,19 +263,21 @@ public final class AutoPlaybackService extends MediaLibraryService {
             return;
         }
 
+        long generation = CacheGeneration.current();
         musicApi.getPicUrl(track, new GdMusicApi.TrackCallback() {
             @Override
             public void onSuccess(Track resolvedTrack) {
-                pendingArtworkItems.remove(mediaId);
-                if (destroyed || !isPresent(resolvedTrack.picUrl)) {
-                    return;
-                }
-                playbackHandler.post(() -> updateMediaItemArtwork(mediaId, resolvedTrack.picUrl));
+                playbackHandler.post(() -> CacheGeneration.runIfCurrent(generation, () -> {
+                    pendingArtworkItems.remove(mediaId);
+                    if (!destroyed && isPresent(resolvedTrack.picUrl)) {
+                        updateMediaItemArtwork(mediaId, resolvedTrack.picUrl);
+                    }
+                }));
             }
 
             @Override
             public void onError(Exception error) {
-                pendingArtworkItems.remove(mediaId);
+                CacheGeneration.runIfCurrent(generation, () -> pendingArtworkItems.remove(mediaId));
             }
         });
     }
@@ -488,6 +524,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
 
             SettableFuture<LibraryResult<ImmutableList<MediaItem>>> future =
                     SettableFuture.create();
+            long generation = CacheGeneration.current();
             musicApi.searchTracks(
                     normalizedQuery,
                     "netease",
@@ -496,10 +533,14 @@ public final class AutoPlaybackService extends MediaLibraryService {
                     new GdMusicApi.SearchCallback() {
                         @Override
                         public void onSuccess(List<Track> tracks) {
-                            List<MediaItem> results =
-                                    autoSearchItems(normalizedQuery, tracks);
-                            autoSearchResults.put(normalizedQuery, results);
-                            future.set(pagedResult(results, page, pageSize, params));
+                            boolean accepted = CacheGeneration.runIfCurrent(generation, () -> {
+                                List<MediaItem> results = autoSearchItems(normalizedQuery, tracks);
+                                autoSearchResults.put(normalizedQuery, results);
+                                future.set(pagedResult(results, page, pageSize, params));
+                            });
+                            if (!accepted) {
+                                future.set(LibraryResult.ofError(SessionError.ERROR_INVALID_STATE));
+                            }
                         }
 
                         @Override
@@ -598,48 +639,28 @@ public final class AutoPlaybackService extends MediaLibraryService {
             String query,
             @Nullable LibraryParams params
     ) {
-        musicApi.searchTracks(
-                query,
-                "netease",
-                AUTO_SEARCH_RESULT_COUNT,
-                1,
+        long generation = CacheGeneration.current();
+        musicApi.searchTracks(query, "netease", AUTO_SEARCH_RESULT_COUNT, 1,
                 new GdMusicApi.SearchCallback() {
                     @Override
                     public void onSuccess(List<Track> tracks) {
-                        List<MediaItem> results = autoSearchItems(query, tracks);
-                        autoSearchResults.put(query, results);
-                        if (!destroyed) {
-                            playbackHandler.post(() -> {
-                                if (!destroyed) {
-                                    session.notifySearchResultChanged(
-                                            browser,
-                                            query,
-                                            results.size(),
-                                            params
-                                    );
-                                }
-                            });
-                        }
+                        deliver(tracks);
                     }
 
                     @Override
                     public void onError(Exception error) {
-                        autoSearchResults.put(query, Collections.emptyList());
-                        if (!destroyed) {
-                            playbackHandler.post(() -> {
-                                if (!destroyed) {
-                                    session.notifySearchResultChanged(
-                                            browser,
-                                            query,
-                                            0,
-                                            params
-                                    );
-                                }
-                            });
-                        }
+                        deliver(Collections.emptyList());
                     }
-                }
-        );
+
+                    private void deliver(List<Track> tracks) {
+                        playbackHandler.post(() -> CacheGeneration.runIfCurrent(generation, () -> {
+                            if (destroyed) return;
+                            List<MediaItem> results = autoSearchItems(query, tracks);
+                            autoSearchResults.put(query, results);
+                            session.notifySearchResultChanged(browser, query, results.size(), params);
+                        }));
+                    }
+                });
     }
 
     private List<MediaItem> autoSearchItems(String query, List<Track> tracks) {
@@ -1250,7 +1271,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
         if (!isPresent(resolved.audioUrl)) {
             throw new IOException("没有拿到播放地址：" + resolved.name);
         }
-        playbackTracks.put(mediaId, resolved);
+        playbackTracks.replace(mediaId, resolved);
         return dataSpec.withUri(Uri.parse(resolved.audioUrl));
     }
 
