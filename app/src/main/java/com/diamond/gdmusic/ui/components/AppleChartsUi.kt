@@ -21,8 +21,7 @@ import com.diamond.gdmusic.data.AppleCharts
 fun AppleChartCover(token: String, modifier: Modifier = Modifier) {
     val parts = token.split(':')
     val country = parts.getOrNull(1).orEmpty()
-    val palette = listOf(0xFF8E7794, 0xFF658A89, 0xFF8B8364, 0xFF6886A0,
-        0xFFAA7A7F, 0xFF7C8D72, 0xFF997D69, 0xFF7C81A3)
+    val palette = AppleCharts.coverColors
     val index = (parts.getOrNull(2)?.toIntOrNull() ?: 0).mod(palette.size)
     Box(modifier.background(Color(palette[index])).padding(10.dp), contentAlignment = Alignment.Center) {
         Text("${AppleCharts.countryName(country)}\n热门歌曲", color = Color.White,

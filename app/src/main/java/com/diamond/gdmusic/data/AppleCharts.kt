@@ -28,12 +28,18 @@ object AppleCharts {
     private fun preferences(context: Context) = context.applicationContext
         .getSharedPreferences("apple_charts", Context.MODE_PRIVATE)
 
+    @Synchronized
     fun countries(context: Context): List<String> {
         val prefs = preferences(context)
         val saved = prefs.getString("countries", null)
         if (saved != null) {
             val countries = saved.split(',').filter { it in AppleChartRegions.supported() }
                 .distinct().take(10)
+            if (prefs.getLong("selection_revision", 0) == 0L && "tw" !in countries && countries.size < 10) {
+                val upgraded = countries.toMutableList().apply { add(minOf(1, size), "tw") }
+                prefs.edit().putString("countries", upgraded.joinToString(",")).apply()
+                return upgraded
+            }
             return countries
         }
         // System region is only a default, not GPS/IP geolocation; no permission needed.
@@ -45,7 +51,7 @@ object AppleCharts {
     }
 
     fun countryName(country: String): String = when (country) {
-        "cn" -> "中国"; "jp" -> "日本"; "kr" -> "韩国"; "us" -> "美国"; "gb" -> "英国"; "xk" -> "科索沃"
+        "cn" -> "中国大陆"; "tw" -> "台湾"; "jp" -> "日本"; "kr" -> "韩国"; "us" -> "美国"; "gb" -> "英国"; "xk" -> "科索沃"
         else -> Locale("", country.uppercase(Locale.ROOT)).getDisplayCountry(Locale.SIMPLIFIED_CHINESE)
             .ifBlank { country.uppercase(Locale.ROOT) }
     }
@@ -92,13 +98,27 @@ object AppleCharts {
         prefs.edit().putString("browsed", (listOf(country) + recent).distinct().take(10).joinToString(",")).apply()
     }
 
+    val coverColors = listOf(0xFF8E7794, 0xFF658A89, 0xFF8B8364, 0xFF6886A0,
+        0xFFAA7A7F, 0xFF7C8D72, 0xFF997D69, 0xFF7C81A3,
+        0xFFAD8964, 0xFF699B9C, 0xFF9B7190, 0xFF7295B0)
+
+    @Synchronized
     private fun cover(context: Context, country: String): String {
         val prefs = preferences(context)
-        val key = "color_$country"
-        val color = if (prefs.contains(key)) prefs.getInt(key, 0) else {
-            kotlin.random.Random.nextInt(8).also { prefs.edit().putInt(key, it).apply() }
+        val used = mutableSetOf<Int>()
+        val editor = prefs.edit()
+        var result = 0
+        // Repair legacy duplicates as well as assigning unused random colors to new regions.
+        for (region in (countries(context) + country).distinct()) {
+            val old = prefs.getInt("color_$region", -1)
+            val color = if (old in coverColors.indices && old !in used) old
+                else coverColors.indices.filter { it !in used }.random()
+            used.add(color)
+            editor.putInt("color_$region", color)
+            if (region == country) result = color
         }
-        return "apple-chart:$country:$color"
+        editor.apply()
+        return "apple-chart:$country:$result"
     }
 
     fun stale(context: Context, country: String, now: Long = System.currentTimeMillis()): Boolean {

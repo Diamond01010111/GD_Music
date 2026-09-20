@@ -18,6 +18,38 @@ class AppleChartsTest {
         .put(JSONObject().put("id", "123").put("name", "Song").put("artistName", "Artist")
             .put("kind", "songs").put("artworkUrl100", "https://example.com/cover.jpg")))
 
+    @Test fun uniqueColorsAndRenamePreserveUserData() {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val prefs = base.getSharedPreferences("chart_polish_${UUID.randomUUID()}", Context.MODE_PRIVATE)
+        val context = object : ContextWrapper(base) {
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(name: String, mode: Int) = prefs
+        }
+        try {
+            val selected = com.diamond.gdmusic.data.AppleChartRegions.supported().take(10)
+            AppleCharts.selectCountries(context, selected)
+            selected.forEach { prefs.edit().putInt("color_$it", 0).commit() }
+            val covers = AppleCharts.playlists(context).map { it.coverUrl }
+            assertEquals(10, covers.map { it.substringAfterLast(':') }.distinct().size)
+            assertEquals(covers, AppleCharts.playlists(context).map { it.coverUrl })
+            assertEquals(selected, AppleCharts.countries(context))
+            val store = LocalPlaylistStore(context)
+            val playlist = store.createPlaylist("旧名称")!!
+            val track = Track("1", "netease", "Song", "Artist", "", "", "")
+            store.addTrackToPlaylist(playlist.id, track)
+            assertTrue(store.renamePlaylist(playlist.id, " 新名称 "))
+            val renamed = store.playlists.first { it.id == playlist.id }
+            assertEquals("新名称", renamed.name)
+            assertEquals("1", renamed.tracks.single().id)
+            assertFalse(store.renamePlaylist(playlist.id, "  "))
+            assertFalse(store.renamePlaylist(playlist.id, "我喜欢的"))
+            val liked = store.createPlaylist("我喜欢的")!!
+            assertFalse(store.renamePlaylist(liked.id, "新名称"))
+        } finally {
+            prefs.edit().clear().commit()
+        }
+    }
+
     @Test fun metadataCanBePlayedThroughExistingSourceResolver() {
         val track = AppleCharts.parseFeed(feed()).single()
         assertEquals("apple", track.source)
@@ -42,7 +74,7 @@ class AppleChartsTest {
             assertTrue(AppleCharts.stale(context, "ca", System.currentTimeMillis() + AppleCharts.DAY_MS + 1))
             assertEquals(1, AppleCharts.playlist(context, "ca").trackCount)
             AppleCharts.clear(context)
-            assertEquals(listOf("cn", "jp", "kr", "us", "gb", "ca"), AppleCharts.countries(context))
+            assertEquals(listOf("cn", "tw", "jp", "kr", "us", "gb", "ca"), AppleCharts.countries(context))
             assertTrue(AppleCharts.tracks(context, "ca").isEmpty())
             assertTrue(AppleCharts.shouldRefresh(context, "ca"))
         } finally {

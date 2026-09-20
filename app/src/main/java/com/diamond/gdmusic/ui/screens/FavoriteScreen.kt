@@ -29,6 +29,7 @@ fun FavoriteScreen(
     onSearchAlbum: (String, String) -> Unit,
     onCreateFavorite: (String) -> Unit,
     onDeleteFavorite: (String) -> Unit,
+    onRenameFavorite: (String, String) -> Boolean,
     onRemoveTrack: (String, Track) -> Unit
 ) {
     var selectedId by remember { mutableStateOf<String?>(null) }
@@ -50,6 +51,7 @@ fun FavoriteScreen(
             onFavorite = onFavorite,
             onSearchArtist = onSearchArtist,
             onSearchAlbum = onSearchAlbum,
+            onRename = { onRenameFavorite(selected.id, it) },
             onDelete = {
                 onDeleteFavorite(selected.id)
                 selectedId = null
@@ -140,8 +142,12 @@ private fun FavoriteDetail(
     onSearchArtist: (String, String) -> Unit,
     onSearchAlbum: (String, String) -> Unit,
     onDelete: () -> Unit,
+    onRename: (String) -> Boolean,
     onRemoveTrack: (Track) -> Unit
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
+    var renameError by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var moreTrack by remember { mutableStateOf<Track?>(null) }
 
@@ -154,8 +160,17 @@ private fun FavoriteDetail(
                 Icon(Icons.Default.ArrowBack, contentDescription = "返回我的收藏")
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = { confirmDelete = true }) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = "删除收藏")
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(text = { Text("重命名") },
+                        enabled = favorite.name != LocalPlaylistStore.LIKED_PLAYLIST_NAME,
+                        onClick = { showMenu = false; renameError = false; showRename = true })
+                    DropdownMenuItem(text = { Text("删除歌单") },
+                        onClick = { showMenu = false; confirmDelete = true })
+                }
             }
         }
 
@@ -244,6 +259,14 @@ private fun FavoriteDetail(
         )
     }
 
+    if (showRename) {
+        NameFavoriteDialog(title = "重命名歌单", confirmText = "保存",
+            initialName = favorite.name,
+            error = if (renameError) "无法重命名，请使用其他名称" else null,
+            onDismiss = { showRename = false },
+            onConfirm = { if (onRename(it)) showRename = false else renameError = true })
+    }
+
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
@@ -263,10 +286,12 @@ private fun FavoriteDetail(
 private fun NameFavoriteDialog(
     title: String,
     confirmText: String,
+    initialName: String = "",
+    error: String? = null,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var name by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(initialName) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -276,6 +301,8 @@ private fun NameFavoriteDialog(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("收藏名称") },
+                isError = error != null,
+                supportingText = { if (error != null) Text(error) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )

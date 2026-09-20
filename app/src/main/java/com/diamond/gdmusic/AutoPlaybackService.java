@@ -1272,6 +1272,20 @@ public final class AutoPlaybackService extends MediaLibraryService {
             throw new IOException("没有拿到播放地址：" + resolved.name);
         }
         playbackTracks.replace(mediaId, resolved);
+        if (track.externalMetadata && !resolved.externalMetadata) {
+            playbackHandler.post(() -> {
+                if (destroyed || playbackTracks.get(mediaId) != resolved) return;
+                for (int index = 0; index < player.getMediaItemCount(); index++) {
+                    MediaItem item = player.getMediaItemAt(index);
+                    if (mediaId.equals(item.mediaId)) {
+                        // Preserve the URI and queue identity: only publish resolved metadata.
+                        player.replaceMediaItem(index, item.buildUpon().setMediaMetadata(
+                                TrackMediaItem.create(mediaId, resolved).mediaMetadata).build());
+                        break;
+                    }
+                }
+            });
+        }
         return dataSpec.withUri(Uri.parse(resolved.audioUrl));
     }
 
