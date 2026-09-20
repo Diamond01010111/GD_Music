@@ -69,6 +69,7 @@ fun MusicApp(
     nowPlayingTrack: Track?,
     artworkUrl: String,
     isPlaying: Boolean,
+    playbackReady: Boolean,
     playMode: PlaybackMode,
     queue: List<Track>,
     currentIndex: Int,
@@ -408,6 +409,7 @@ fun MusicApp(
         ) {
             if (showPlayerDetail && nowPlayingTrack != null) {
                 PlayerDetailScreen(
+                    playbackReady = playbackReady,
                     track = nowPlayingTrack,
                     artworkUrl = artworkUrl,
                     isPlaying = isPlaying,

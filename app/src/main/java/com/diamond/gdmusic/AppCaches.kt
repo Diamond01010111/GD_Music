@@ -44,6 +44,33 @@ object AppCaches {
                 .build()
         }.build()
 
+    internal fun preserveFavoriteCovers(old: DiskCache?, fresh: DiskCache?, urls: Set<String>) {
+        if (old == null || fresh == null) return
+        for (url in urls) {
+            old.openSnapshot(url)?.use { snapshot ->
+                val editor = fresh.openEditor(url) ?: error("无法保留收藏封面")
+                try {
+                    old.fileSystem.source(snapshot.metadata).use { source ->
+                        fresh.fileSystem.sink(editor.metadata).use { sink ->
+                            val buffer = okio.Buffer()
+                            while (source.read(buffer, 8192) != -1L) sink.write(buffer, buffer.size)
+                        }
+                    }
+                    old.fileSystem.source(snapshot.data).use { source ->
+                        fresh.fileSystem.sink(editor.data).use { sink ->
+                            val buffer = okio.Buffer()
+                            while (source.read(buffer, 8192) != -1L) sink.write(buffer, buffer.size)
+                        }
+                    }
+                    editor.commit()
+                } catch (error: Exception) {
+                    editor.abort()
+                    throw error
+                }
+            }
+        }
+    }
+
     @OptIn(DelicateCoilApi::class)
     fun clear(context: Context) {
         if (mutableState.value.clearing) return
@@ -62,11 +89,24 @@ object AppCaches {
                 val oldDisk = oldLoader.diskCache
                 // Retire the old loader and disk instance. Late image requests cannot
                 // write into the replacement cache, which has a different directory.
-                oldLoader.shutdown()
                 val directory = "gd_covers_" + UUID.randomUUID().toString()
+                val replacement = newImageLoader(app, directory)
+                // Keep local favorites' image bytes as well as their persisted URLs.
+                // Only copy completed entries; old in-flight writes stay in the retired cache.
+                val favoriteUrls = LocalPlaylistStore(app).playlists.flatMap { it.tracks }
+                    .mapNotNull { it.picUrl?.takeIf { url -> url.isNotBlank() && url != "null" } }.toSet()
+                try {
+                    withContext(Dispatchers.IO) {
+                        preserveFavoriteCovers(oldDisk, replacement.diskCache, favoriteUrls)
+                    }
+                } catch (error: Exception) {
+                    replacement.shutdown()
+                    throw error // Keep the old cache if preserving a cover failed.
+                }
+                oldLoader.shutdown()
                 app.getSharedPreferences("image_cache_location", Context.MODE_PRIVATE)
                     .edit().putString("directory", directory).apply()
-                SingletonImageLoader.setUnsafe(newImageLoader(app, directory))
+                SingletonImageLoader.setUnsafe(replacement)
                 withContext(Dispatchers.IO) {
                     try {
                         oldDisk?.clear()

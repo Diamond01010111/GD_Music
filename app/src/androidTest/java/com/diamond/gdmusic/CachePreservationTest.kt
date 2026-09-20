@@ -12,9 +12,32 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
+import okio.Path.Companion.toOkioPath
 
 @RunWith(AndroidJUnit4::class)
 class CachePreservationTest {
+    @Test fun favoriteCoverBytesSurviveCacheRotation() {
+        val base = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = java.io.File(base.cacheDir, "cover_test_${UUID.randomUUID()}")
+        val old = coil3.disk.DiskCache.Builder().directory(java.io.File(root, "old").toOkioPath()).build()
+        val fresh = coil3.disk.DiskCache.Builder().directory(java.io.File(root, "fresh").toOkioPath()).build()
+        try {
+            listOf("favorite", "other").forEach { key ->
+                val editor = old.openEditor(key)!!
+                editor.data.toFile().writeText("image-$key")
+                editor.metadata.toFile().writeText("metadata-$key")
+                editor.commit()
+            }
+            AppCaches.preserveFavoriteCovers(old, fresh, setOf("favorite"))
+            old.clear()
+            fresh.openSnapshot("favorite")!!.use {
+                assertEquals("image-favorite", it.data.toFile().readText())
+                assertEquals("metadata-favorite", it.metadata.toFile().readText())
+            }
+            assertNull(fresh.openSnapshot("other"))
+        } finally { old.shutdown(); fresh.shutdown(); root.deleteRecursively() }
+    }
+
     @Test fun clearingCachedListsPreservesIdentityAndBrowsingOrder() {
         val base = InstrumentationRegistry.getInstrumentation().targetContext
         val prefix = "cache_test_${UUID.randomUUID()}_"

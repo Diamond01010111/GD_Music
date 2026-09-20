@@ -86,6 +86,7 @@ fun PlayerDetailScreen(
     track: Track,
     artworkUrl: String,
     isPlaying: Boolean,
+    playbackReady: Boolean,
     playMode: PlaybackMode,
     playbackProgress: Float,
     playbackPositionMs: Long,
@@ -121,6 +122,7 @@ fun PlayerDetailScreen(
     var showMore by remember { mutableStateOf(false) }
 
     fun loadLyrics(preferredSource: String?) {
+        if (!playbackReady) return
         lyricRequestSerial += 1
         val requestSerial = lyricRequestSerial
         isLoadingLyrics = true
@@ -147,8 +149,12 @@ fun PlayerDetailScreen(
         }
     }
 
-    LaunchedEffect(track.source, track.id, track.lyricId) {
-        loadLyrics(null)
+    var lyricsRequested by remember(track.source, track.id) { mutableStateOf(false) }
+    LaunchedEffect(track.source, track.id, track.lyricId, playbackReady) {
+        if (playbackReady && !lyricsRequested) {
+            lyricsRequested = true
+            loadLyrics(null)
+        }
     }
 
     val lyricLines = remember(rawLyrics) { parseLyrics(rawLyrics) }

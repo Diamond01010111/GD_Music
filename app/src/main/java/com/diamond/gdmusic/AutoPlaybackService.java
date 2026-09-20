@@ -155,6 +155,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                         new DefaultMediaSourceFactory(resolvingDataSourceFactory)
                 )
                 .build();
+        RequestTracker.initialize(this);
         playbackHandler = new Handler(player.getApplicationLooper());
         player.addListener(new Player.Listener() {
             @Override
@@ -162,7 +163,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                     @Nullable MediaItem mediaItem,
                     int reason
             ) {
-                requestMissingArtwork(mediaItem);
+                if (player.getPlaybackState() == Player.STATE_READY) requestMissingArtwork(mediaItem);
                 updateFavoriteButton(TrackMediaItem.toTrack(mediaItem));
                 if (player.isPlaying()) {
                     recordCurrentTrackAsPlayed();
@@ -174,6 +175,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 if (playbackState != Player.STATE_READY) {
                     return;
                 }
+                requestMissingArtwork(player.getCurrentMediaItem());
                 MediaItem currentItem = player.getCurrentMediaItem();
                 if (currentItem != null) {
                     sourceRecoveryItems.remove(currentItem.mediaId);
@@ -248,8 +250,10 @@ public final class AutoPlaybackService extends MediaLibraryService {
     }
 
     private void requestMissingArtwork(@Nullable MediaItem mediaItem) {
-        Track track = TrackMediaItem.toTrack(mediaItem);
-        if (mediaItem == null || track == null || isPresent(track.picUrl)) {
+        if (player.getPlaybackState() != Player.STATE_READY || player.getPlayerError() != null) return;
+        Track track = mediaItem == null ? null : playbackTracks.get(mediaItem.mediaId);
+        if (track == null) track = TrackMediaItem.toTrack(mediaItem);
+        if (mediaItem == null || track == null || track.externalMetadata || isPresent(track.picUrl)) {
             return;
         }
 
@@ -269,7 +273,9 @@ public final class AutoPlaybackService extends MediaLibraryService {
             public void onSuccess(Track resolvedTrack) {
                 playbackHandler.post(() -> CacheGeneration.runIfCurrent(generation, () -> {
                     pendingArtworkItems.remove(mediaId);
-                    if (!destroyed && isPresent(resolvedTrack.picUrl)) {
+                    Track active = playbackTracks.get(mediaId);
+                    if (!destroyed && active != null && active.id.equals(resolvedTrack.id)
+                            && active.source.equals(resolvedTrack.source) && isPresent(resolvedTrack.picUrl)) {
                         updateMediaItemArtwork(mediaId, resolvedTrack.picUrl);
                     }
                 }));
@@ -301,8 +307,9 @@ public final class AutoPlaybackService extends MediaLibraryService {
             if (!mediaId.equals(item.mediaId)) {
                 continue;
             }
-            Track track = TrackMediaItem.toTrack(item);
-            if (track == null || isPresent(track.picUrl)) {
+            Track track = playbackTracks.get(mediaId);
+            if (track == null) track = TrackMediaItem.toTrack(item);
+            if (track == null) {
                 return;
             }
             track.picUrl = artworkUrl;
@@ -1065,6 +1072,13 @@ public final class AutoPlaybackService extends MediaLibraryService {
             return;
         }
 
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof GdMusicApi.RateLimitException) {
+                player.pause();
+                Log.w(SESSION_LOG_TAG, "GD API request limit reached; keeping the current queue");
+                return;
+            }
+        }
         MediaItem failedItem = player.getCurrentMediaItem();
         int failedIndex = player.getCurrentMediaItemIndex();
         if (failedItem == null || failedIndex == C.INDEX_UNSET) {
@@ -1267,12 +1281,12 @@ public final class AutoPlaybackService extends MediaLibraryService {
             throw new IOException("找不到播放项目：" + mediaId);
         }
 
-        Track resolved = hasValidAudioUrl(track) ? track : resolveTrackBlocking(track);
+        Track resolved = hasValidAudioUrl(track) ? track : resolveTrackBlocking(track, sourceRecoveryItems.contains(mediaId));
         if (!isPresent(resolved.audioUrl)) {
             throw new IOException("没有拿到播放地址：" + resolved.name);
         }
         playbackTracks.replace(mediaId, resolved);
-        if (track.externalMetadata && !resolved.externalMetadata) {
+        if (!resolved.externalMetadata) {
             playbackHandler.post(() -> {
                 if (destroyed || playbackTracks.get(mediaId) != resolved) return;
                 for (int index = 0; index < player.getMediaItemCount(); index++) {
@@ -1281,6 +1295,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                         // Preserve the URI and queue identity: only publish resolved metadata.
                         player.replaceMediaItem(index, item.buildUpon().setMediaMetadata(
                                 TrackMediaItem.create(mediaId, resolved).mediaMetadata).build());
+                        if (player.getPlaybackState() == Player.STATE_READY) requestMissingArtwork(player.getCurrentMediaItem());
                         break;
                     }
                 }
@@ -1289,7 +1304,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
         return dataSpec.withUri(Uri.parse(resolved.audioUrl));
     }
 
-    private Track resolveTrackBlocking(Track track) throws IOException {
+    private Track resolveTrackBlocking(Track track, boolean recovering) throws IOException {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Track> result = new AtomicReference<>();
         AtomicReference<Exception> failure = new AtomicReference<>();
@@ -1310,7 +1325,9 @@ public final class AutoPlaybackService extends MediaLibraryService {
         int bitrate = track.requestedBitrate > 0
                 ? track.requestedBitrate
                 : PlaybackPreferences.defaultBitrate(this);
-        if (track.externalMetadata) {
+        if (recovering) {
+            musicApi.resolveAfterPlaybackFailure(track, bitrate, callback);
+        } else if (track.externalMetadata) {
             musicApi.resolveExternalTrack(track, bitrate, callback);
         } else {
             musicApi.getAudioUrl(track, bitrate, callback);
