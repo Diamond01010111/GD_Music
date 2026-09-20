@@ -202,6 +202,22 @@ public class LocalPlaylistStore {
         return false;
     }
 
+    public boolean renamePlaylist(String playlistId, String name) {
+        String normalized = name == null ? "" : name.trim();
+        if (normalized.isEmpty() || LIKED_PLAYLIST_NAME.equals(normalized)) return false;
+        List<LocalPlaylist> playlists = getPlaylists();
+        for (int i = 0; i < playlists.size(); i++) {
+            LocalPlaylist playlist = playlists.get(i);
+            if (playlist.id.equals(playlistId)) {
+                if (LIKED_PLAYLIST_NAME.equals(playlist.name)) return false;
+                playlists.set(i, new LocalPlaylist(playlist.id, normalized, playlist.tracks));
+                savePlaylists(playlists);
+                return true;
+            }
+        }
+        return false;
+    }
+
     public boolean deletePlaylist(String playlistId) {
         List<LocalPlaylist> playlists = getPlaylists();
 

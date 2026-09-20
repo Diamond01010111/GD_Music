@@ -352,6 +352,12 @@ class ComposeMainActivity : ComponentActivity() {
                             }
                         },
 
+                        onRenameFavorite = { favoriteId, name ->
+                            val renamed = localPlaylistStore.renamePlaylist(favoriteId, name)
+                            localPlaylists = localPlaylistStore.playlists
+                            if (renamed) showToast("歌单已重命名")
+                            renamed
+                        },
                         onDeleteFavorite = { favoriteId ->
                             val deleted = localPlaylistStore.deletePlaylist(favoriteId)
                             localPlaylists = localPlaylistStore.playlists

@@ -478,13 +478,13 @@ private fun HomeContent(
                 AutoSizeSingleLineText("苹果热门歌曲", style = MaterialTheme.typography.titleLarge,
                     minFontSize = 12.sp, maxFontSize = 22.sp, modifier = Modifier.weight(1f))
                 if (appleLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                IconButton(onClick = onRefreshApple, enabled = !appleLoading) {
+                    Icon(Icons.Default.Refresh, contentDescription = "刷新 Apple Music 热门歌曲")
+                }
                 IconButton(onClick = onSelectAppleCountries, enabled = !appleLoading) {
                     Icon(Icons.Default.Add, contentDescription = "选择苹果榜单国家或地区")
                 }
                 TextButton(onClick = onToggleApple) { Text(if (showAllApple) "收起" else "查看全部") }
-                IconButton(onClick = onRefreshApple, enabled = !appleLoading) {
-                    Icon(Icons.Default.Refresh, contentDescription = "刷新 Apple Music 热门歌曲")
-                }
             }
         }
         if (appleError != null) {

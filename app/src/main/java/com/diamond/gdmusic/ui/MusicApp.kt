@@ -124,6 +124,7 @@ fun MusicApp(
     onCreateEmptyFavorite: (String) -> Unit,
     onAddToLocalPlaylist: (String, Track) -> Unit,
     onDeleteFavorite: (String) -> Unit,
+    onRenameFavorite: (String, String) -> Boolean,
     onRemoveLocalPlaylistTrack: (String, Track) -> Unit,
     onSkipPrevious: () -> Unit,
     onSkipNext: () -> Unit,
@@ -546,6 +547,7 @@ fun MusicApp(
                         },
                         onCreateFavorite = onCreateEmptyFavorite,
                         onDeleteFavorite = onDeleteFavorite,
+                        onRenameFavorite = onRenameFavorite,
                         onRemoveTrack = onRemoveLocalPlaylistTrack
                     )
                 }

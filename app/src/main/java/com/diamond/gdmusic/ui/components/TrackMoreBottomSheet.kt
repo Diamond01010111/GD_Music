@@ -256,7 +256,7 @@ private enum class SourceTarget {
     LYRIC
 }
 
-private fun sourceLabel(source: String?): String = supportedMusicSources
+private fun sourceLabel(source: String?): String = if (source == "apple") "自动匹配（苹果榜单）" else supportedMusicSources
     .firstOrNull { it.value == source }
     ?.label
     ?: source?.ifBlank { "自动匹配" }
