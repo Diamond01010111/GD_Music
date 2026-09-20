@@ -13,7 +13,7 @@ data class RecentPlaylist(
     val trackCount: Int,
     val type: Type = Type.NETEASE
 ) {
-    enum class Type { NETEASE, LOCAL }
+    enum class Type { NETEASE, LOCAL, APPLE }
 }
 
 /**
@@ -43,7 +43,7 @@ class PlaybackHistoryStore(context: Context) {
             name = playlist.name,
             coverUrl = playlist.coverUrl,
             trackCount = playlist.trackCount,
-            type = RecentPlaylist.Type.NETEASE
+            type = if (playlist.id.startsWith(AppleCharts.PREFIX)) RecentPlaylist.Type.APPLE else RecentPlaylist.Type.NETEASE
         )
         saveRecentPlaylist(recent)
     }
