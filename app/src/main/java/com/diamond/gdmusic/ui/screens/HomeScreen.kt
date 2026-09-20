@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -72,11 +73,15 @@ import com.diamond.gdmusic.AudioQuality
 import com.diamond.gdmusic.LocalPlaylistStore
 import com.diamond.gdmusic.RequestTracker
 import com.diamond.gdmusic.Track
+import com.diamond.gdmusic.data.AppleCharts
+import com.diamond.gdmusic.data.AppleChartsRepository
 import com.diamond.gdmusic.data.NeteasePlaylist
 import com.diamond.gdmusic.data.NeteasePlaylistRepository
 import com.diamond.gdmusic.data.NeteaseToplistCache
 import com.diamond.gdmusic.data.PlaybackHistoryStore
 import com.diamond.gdmusic.data.RecentPlaylist
+import com.diamond.gdmusic.ui.components.AppleChartCover
+import com.diamond.gdmusic.ui.components.AppleCountryPicker
 import com.diamond.gdmusic.ui.components.AutoSizeSingleLineText
 import com.diamond.gdmusic.ui.components.TrackMoreBottomSheet
 import kotlinx.coroutines.delay
@@ -112,6 +117,51 @@ fun HomeScreen(
     val context = LocalContext.current
     val historyStore = remember { PlaybackHistoryStore(context.applicationContext) }
     val playlistRepository = remember { NeteasePlaylistRepository() }
+    val appleRepository = remember { AppleChartsRepository(context) }
+    var applePlaylists by remember { mutableStateOf(AppleCharts.playlists(context)) }
+    var showAllApple by remember { mutableStateOf(false) }
+    var showApplePicker by remember { mutableStateOf(false) }
+    var appleLoading by remember { mutableStateOf(false) }
+    var appleError by remember { mutableStateOf<String?>(null) }
+
+    fun refreshAppleCharts(force: Boolean = false) {
+        if (appleLoading) return
+        appleLoading = true
+        appleError = null
+        scope.launch {
+            try {
+                val failed = appleRepository.refresh(force)
+                applePlaylists = AppleCharts.playlists(context)
+                appleError = failed.takeIf { it.isNotEmpty() }
+                    ?.joinToString(prefix = "暂时无法刷新：", postfix = "，可点击刷新重试")
+            } finally {
+                appleLoading = false
+            }
+        }
+    }
+
+    if (showApplePicker) {
+        AppleCountryPicker(AppleCharts.countries(context),
+            onDismiss = { showApplePicker = false },
+            onSave = { countries ->
+                AppleCharts.selectCountries(context, countries)
+                applePlaylists = AppleCharts.playlists(context)
+                showApplePicker = false
+                scope.launch {
+                    while (appleLoading) delay(100L)
+                    refreshAppleCharts()
+                }
+            })
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            if (AppleCharts.countries(context).any { AppleCharts.shouldRefresh(context, it) }) {
+                refreshAppleCharts()
+            }
+            delay(60_000L)
+        }
+    }
     var requestCount by remember { mutableIntStateOf(RequestTracker.countLastFiveMinutes()) }
     var recentTracks by remember { mutableStateOf(historyStore.recentTracks()) }
     var recentPlaylists by remember { mutableStateOf(historyStore.recentPlaylists()) }
@@ -152,13 +202,14 @@ fun HomeScreen(
 
     BackHandler(
         enabled = showHistory || selectedPlaylist != null ||
-            selectedLocalPlaylist != null || showAllRecommendations
+            selectedLocalPlaylist != null || showAllRecommendations || showAllApple
     ) {
         when {
             selectedPlaylist != null -> selectedPlaylist = null
             selectedLocalPlaylist != null -> selectedLocalPlaylist = null
             showHistory -> showHistory = false
             showAllRecommendations -> showAllRecommendations = false
+            showAllApple -> showAllApple = false
         }
     }
 
@@ -182,7 +233,16 @@ fun HomeScreen(
             repository = playlistRepository,
             onBack = { selectedPlaylist = null },
             onPlayPlaylist = { tracks, index -> onPlayPlaylist(playlist, tracks, index) },
-            sourceLabel = if (selectedPlaylistIsRecommendation) "音乐推荐" else "网易云",
+            sourceLabel = when {
+                playlist.id.startsWith(AppleCharts.PREFIX) -> "Apple Music"
+                selectedPlaylistIsRecommendation -> "音乐推荐"
+                else -> "网易云"
+            },
+            loadTracks = { id, callback ->
+                if (id.startsWith(AppleCharts.PREFIX)) {
+                    scope.launch { callback(appleRepository.loadTracks(id)) }
+                } else playlistRepository.loadPlaylistTracks(id, callback)
+            },
             onPlayTrack = { tracks, index -> onPlayPlaylistTrack(playlist, tracks, index) },
             onPlayNext = onPlayNext,
             onAddToPlaylist = onAddToPlaylist,
@@ -227,6 +287,13 @@ fun HomeScreen(
             recentPlaylists = recentPlaylists,
             localPlaylists = localPlaylists,
             topLists = topLists,
+            applePlaylists = applePlaylists,
+            appleLoading = appleLoading,
+            appleError = appleError,
+            showAllApple = showAllApple,
+            onToggleApple = { showAllApple = !showAllApple },
+            onSelectAppleCountries = { showApplePicker = true },
+            onRefreshApple = { refreshAppleCharts(force = true) },
             recentlyBrowsedToplists = recentlyBrowsedToplists,
             isLoadingTopLists = isLoadingTopLists,
             topListError = topListError,
@@ -242,8 +309,12 @@ fun HomeScreen(
                 showAllRecommendations = !showAllRecommendations
             },
             onOpenPlaylist = { playlist, isRecommendation ->
+                if (playlist.id.startsWith(AppleCharts.PREFIX)) {
+                    AppleCharts.recordBrowsing(context, playlist.id.removePrefix(AppleCharts.PREFIX))
+                    applePlaylists = AppleCharts.playlists(context)
+                }
                 selectedPlaylistIsRecommendation = isRecommendation
-                if (isRecommendation) {
+                if (isRecommendation && !playlist.id.startsWith(AppleCharts.PREFIX)) {
                     NeteaseToplistCache.recordBrowsing(context, playlist)
                     recentlyBrowsedToplists = NeteaseToplistCache.recentlyBrowsed(context)
                 }
@@ -261,6 +332,13 @@ private fun HomeContent(
     recentPlaylists: List<RecentPlaylist>,
     localPlaylists: List<LocalPlaylistStore.LocalPlaylist>,
     topLists: List<NeteasePlaylist>,
+    applePlaylists: List<NeteasePlaylist>,
+    appleLoading: Boolean,
+    appleError: String?,
+    showAllApple: Boolean,
+    onToggleApple: () -> Unit,
+    onSelectAppleCountries: () -> Unit,
+    onRefreshApple: () -> Unit,
     recentlyBrowsedToplists: List<NeteasePlaylist>,
     isLoadingTopLists: Boolean,
     topListError: String?,
@@ -319,7 +397,11 @@ private fun HomeContent(
                     HomePlaylistCard(
                         name = playlist.name,
                         coverUrl = playlist.coverUrl,
-                        subtitle = "${if (playlist.type == RecentPlaylist.Type.LOCAL) "收藏" else "网易云"} · ${playlist.trackCount} 首"
+                        subtitle = "${when (playlist.type) {
+                            RecentPlaylist.Type.LOCAL -> "收藏"
+                            RecentPlaylist.Type.APPLE -> "苹果"
+                            RecentPlaylist.Type.NETEASE -> "网易云"
+                        }} · ${playlist.trackCount} 首"
                     ) {
                         if (playlist.type == RecentPlaylist.Type.LOCAL) {
                             localPlaylists.firstOrNull { it.id == playlist.id }
@@ -391,6 +473,43 @@ private fun HomeContent(
                 }
             }
         }
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                AutoSizeSingleLineText("苹果热门歌曲", style = MaterialTheme.typography.titleLarge,
+                    minFontSize = 12.sp, maxFontSize = 22.sp, modifier = Modifier.weight(1f))
+                if (appleLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                IconButton(onClick = onSelectAppleCountries, enabled = !appleLoading) {
+                    Icon(Icons.Default.Add, contentDescription = "选择苹果榜单国家或地区")
+                }
+                TextButton(onClick = onToggleApple) { Text(if (showAllApple) "收起" else "查看全部") }
+                IconButton(onClick = onRefreshApple, enabled = !appleLoading) {
+                    Icon(Icons.Default.Refresh, contentDescription = "刷新 Apple Music 热门歌曲")
+                }
+            }
+        }
+        if (appleError != null) {
+            item { Text(appleError, color = MaterialTheme.colorScheme.error) }
+        }
+        item {
+            if (applePlaylists.isEmpty()) {
+                Text("点击 + 选择要显示的国家或地区。", style = MaterialTheme.typography.bodyMedium)
+            } else if (showAllApple) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    applePlaylists.take(10).forEach { playlist ->
+                        HomePlaylistCard(playlist.name, playlist.coverUrl,
+                            "${playlist.trackCount} 首歌曲", onClick = { onOpenPlaylist(playlist, true) })
+                    }
+                }
+            } else {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(applePlaylists.take(10), key = { it.id }) { playlist ->
+                        HomePlaylistCard(playlist.name, playlist.coverUrl,
+                            "${playlist.trackCount} 首歌曲", onClick = { onOpenPlaylist(playlist, true) })
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -426,7 +545,9 @@ private fun HomePlaylistCard(
 ) {
     Card(onClick = onClick, modifier = Modifier.width(132.dp)) {
         Column {
-            if (coverUrl.isNotBlank()) {
+            if (coverUrl.startsWith("apple-chart:")) {
+                AppleChartCover(coverUrl, Modifier.fillMaxWidth().aspectRatio(1f))
+            } else if (coverUrl.isNotBlank()) {
                 AsyncImage(
                     model = coverUrl,
                     contentDescription = name,
@@ -462,7 +583,9 @@ private fun HomePlaylistCard(
 @Composable
 private fun HomePlaylistCover(coverUrl: String, name: String, modifier: Modifier) {
     Card(modifier) {
-        if (coverUrl.isNotBlank() && coverUrl != "null") {
+        if (coverUrl.startsWith("apple-chart:")) {
+            AppleChartCover(coverUrl, Modifier.fillMaxSize())
+        } else if (coverUrl.isNotBlank() && coverUrl != "null") {
             AsyncImage(
                 model = coverUrl,
                 contentDescription = name,
@@ -547,7 +670,8 @@ private fun HomePlaylistDetail(
     onFavorite: (Track) -> Unit,
     onSearchArtist: (String, String) -> Unit,
     onSearchAlbum: (String, String) -> Unit,
-    onSync: (List<Track>, (Result<Unit>) -> Unit) -> Unit
+    onSync: (List<Track>, (Result<Unit>) -> Unit) -> Unit,
+    loadTracks: (String, (Result<List<Track>>) -> Unit) -> Unit = repository::loadPlaylistTracks
 ) {
     var tracks by remember(playlist.id) { mutableStateOf<List<Track>>(emptyList()) }
     var loading by remember(playlist.id) { mutableStateOf(true) }
@@ -555,7 +679,7 @@ private fun HomePlaylistDetail(
     var moreTrack by remember(playlist.id) { mutableStateOf<Track?>(null) }
     var showPlaylistMore by remember(playlist.id) { mutableStateOf(false) }
     LaunchedEffect(playlist.id) {
-        repository.loadPlaylistTracks(playlist.id) { result ->
+        loadTracks(playlist.id) { result ->
             loading = false
             result.onSuccess { tracks = it }.onFailure { failure ->
                 error = failure.message ?: "加载歌单失败"

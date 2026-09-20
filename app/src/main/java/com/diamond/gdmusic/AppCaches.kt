@@ -55,6 +55,7 @@ object AppCaches {
                 CacheGeneration.invalidate {
                     NeteasePlaylistCache.clear(app)
                     NeteaseToplistCache.clearCachedToplists(app)
+                    com.diamond.gdmusic.data.AppleCharts.clear(app)
                     listeners.toList().forEach { it.run() }
                 }
                 val oldLoader = SingletonImageLoader.get(app)

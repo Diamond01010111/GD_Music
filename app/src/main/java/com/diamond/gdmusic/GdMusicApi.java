@@ -294,7 +294,7 @@ public class GdMusicApi {
     }
 
     private void addSource(List<String> sources, String source) {
-        if (source != null && !source.trim().isEmpty() && !sources.contains(source)) {
+        if (source != null && !"apple".equals(source) && !source.trim().isEmpty() && !sources.contains(source)) {
             sources.add(source);
         }
     }
@@ -394,6 +394,10 @@ public class GdMusicApi {
     }
 
     public void searchTracks(String keywordRaw, String source, int count, int page, SearchCallback callback) {
+        if ("apple".equals(source)) {
+            searchTracks(keywordRaw, "netease", count, page, callback);
+            return;
+        }
         try {
             String keyword = URLEncoder.encode(keywordRaw, "UTF-8");
 
