@@ -921,6 +921,10 @@ private fun AppDrawer(
     onDarkModeChange: (Boolean) -> Unit,
     onClearCache: () -> Unit
 ) {
+    var showAutoSources by remember { mutableStateOf(false) }
+    if (showAutoSources) {
+        com.diamond.gdmusic.ui.components.AutoSourcesDialog(onDismiss = { showAutoSources = false })
+    }
     var showQualityChoices by remember { mutableStateOf(false) }
     var confirmClearCache by remember { mutableStateOf(false) }
     if (confirmClearCache) {
@@ -968,6 +972,12 @@ private fun AppDrawer(
                     )
                 }
             }
+            NavigationDrawerItem(
+                label = { Text("自动换源") },
+                selected = false,
+                onClick = { showAutoSources = true },
+                modifier = Modifier.padding(horizontal = 12.dp)
+            )
             NavigationDrawerItem(
                 label = { Text("清理缓存") },
                 selected = false,

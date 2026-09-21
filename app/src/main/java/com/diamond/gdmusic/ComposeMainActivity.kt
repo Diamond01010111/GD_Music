@@ -56,6 +56,7 @@ class ComposeMainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         RequestTracker.initialize(applicationContext)
+        AutoSourcePreferences.initialize(applicationContext)
         AppCaches.initializeImages(applicationContext)
         enableEdgeToEdge()
         api = GdMusicApi()

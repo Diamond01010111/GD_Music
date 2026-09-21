@@ -40,9 +40,9 @@ public class SourceFallbackTest {
             }
         });
         assertTrue(failed.get());
-        assertEquals(Arrays.asList("netease", "joox", "kuwo", "bilibili"), api.sources);
-        assertEquals(4, api.searches);
-        assertEquals(12, api.audioRequests);
+        assertEquals(Arrays.asList("netease", "joox", "bilibili"), api.sources);
+        assertEquals(3, api.searches);
+        assertEquals(9, api.audioRequests);
     }
     @Test public void matchingRequiresTitleAndArtistAndDeduplicatesIds() {
         Track match = song("1", "joox", "七里香", "周杰倫");
@@ -72,7 +72,7 @@ public class SourceFallbackTest {
             public void onSuccess(Track t) { fail(); }
             public void onError(Exception error) { }
         });
-        assertEquals(4, api.searches);
-        assertEquals(4, api.lyricRequests);
+        assertEquals(3, api.searches);
+        assertEquals(3, api.lyricRequests);
     }
 }
