@@ -166,6 +166,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 )
                 .build();
         RequestTracker.initialize(this);
+        AutoSourcePreferences.initialize(this);
         playbackHandler = new Handler(player.getApplicationLooper());
         player.addListener(new Player.Listener() {
             @Override

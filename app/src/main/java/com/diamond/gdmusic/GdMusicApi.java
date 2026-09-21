@@ -21,13 +21,6 @@ import okhttp3.Response;
 
 public class GdMusicApi {
 
-    private static final String[] PLAYABLE_SOURCES = {
-            "netease",
-            "joox",
-            "kuwo",
-            "bilibili"
-    };
-
     private final OkHttpClient client = new OkHttpClient.Builder()
             .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build();
 
@@ -91,9 +84,15 @@ public class GdMusicApi {
             callback.onError(new IllegalArgumentException("歌曲缺少歌曲名或歌手"));
             return;
         }
+        List<String> sources = orderedSources(reference, preferredSource);
+        // Fetch the playing track's own lyrics directly even when automatic fallback is off.
+        if (preferredSource == null && present(reference.lyricId) && !"apple".equals(reference.source)) {
+            sources.remove(reference.source);
+            sources.add(0, reference.source);
+        }
         tryResolveLyricSource(
                 reference,
-                orderedSources(reference, preferredSource),
+                sources,
                 0,
                 callback
         );
@@ -314,13 +313,16 @@ public class GdMusicApi {
         });
     }
 
+    List<String> automaticSources() { return AutoSourcePreferences.selected(); }
+
     private List<String> orderedSources(Track reference, String preferredSource) {
         List<String> sources = new ArrayList<>();
         addSource(sources, preferredSource);
-        if (reference != null && java.util.Arrays.asList(PLAYABLE_SOURCES).contains(reference.source)) {
+        List<String> selected = automaticSources();
+        if (reference != null && selected.contains(reference.source)) {
             addSource(sources, reference.source);
         }
-        for (String source : PLAYABLE_SOURCES) {
+        for (String source : selected) {
             addSource(sources, source);
         }
         return sources;
