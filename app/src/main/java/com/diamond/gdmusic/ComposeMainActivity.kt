@@ -45,6 +45,7 @@ class ComposeMainActivity : ComponentActivity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController by mutableStateOf<MediaController?>(null)
     private var lastRootBackAt = 0L
+    @Volatile private var playableLyricKey: String? = null
     private val lyricCache = ConcurrentHashMap<String, Track>()
     private val clearCacheListener = Runnable {
         lyricCache.clear()
@@ -54,6 +55,7 @@ class ComposeMainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        RequestTracker.initialize(applicationContext)
         AppCaches.initializeImages(applicationContext)
         enableEdgeToEdge()
         api = GdMusicApi()
@@ -80,6 +82,7 @@ class ComposeMainActivity : ComponentActivity() {
                 var currentTrack by remember { mutableStateOf<Track?>(null) }
                 var artworkUrl by remember { mutableStateOf("") }
                 var artworkTrackKey by remember { mutableStateOf("") }
+                var playbackReady by remember { mutableStateOf(false) }
                 var isPlaying by remember { mutableStateOf(false) }
                 var playMode by remember { mutableStateOf(PlaybackMode.LIST_LOOP) }
                 var queue by remember { mutableStateOf<List<Track>>(emptyList()) }
@@ -107,6 +110,8 @@ class ComposeMainActivity : ComponentActivity() {
                     if (controller == null) {
                         currentTrack = null
                         artworkUrl = ""
+                        playableLyricKey = null
+                        playbackReady = false
                         isPlaying = false
                         queue = emptyList()
                         currentIndex = -1
@@ -125,6 +130,8 @@ class ComposeMainActivity : ComponentActivity() {
                     } else if (!nextTrack?.picUrl.isNullOrBlank()) {
                         artworkUrl = nextTrack?.picUrl.orEmpty()
                     }
+                    playbackReady = controller.playbackState == Player.STATE_READY && controller.playerError == null && nextTrack?.externalMetadata == false
+                    playableLyricKey = if (playbackReady) nextTrackKey else null
                     isPlaying = controller.isPlaying
                     playMode = playbackMode(controller)
                     queue = (0 until controller.mediaItemCount).mapNotNull { index ->
@@ -190,6 +197,7 @@ class ComposeMainActivity : ComponentActivity() {
                         nowPlayingTrack = currentTrack,
                         artworkUrl = artworkUrl,
                         isPlaying = isPlaying,
+                        playbackReady = playbackReady,
                         playMode = playMode,
                         queue = queue,
                         currentIndex = currentIndex,
@@ -594,6 +602,13 @@ class ComposeMainActivity : ComponentActivity() {
         preferredSource: String?,
         callback: (Result<Track>) -> Unit
     ) {
+        val current = mediaController
+        val active = TrackMediaItem.toTrack(current?.currentMediaItem)
+        if (current?.playbackState != Player.STATE_READY || current.playerError != null ||
+            active?.id != track.id || active?.source != track.source || track.externalMetadata) {
+            callback(Result.failure(IllegalStateException("确认歌曲可播放后再加载歌词")))
+            return
+        }
         val generation = CacheGeneration.current()
         val cacheKey = lyricCacheKey(track, preferredSource)
         lyricCache[cacheKey]?.let { cached ->
@@ -605,9 +620,13 @@ class ComposeMainActivity : ComponentActivity() {
             track,
             preferredSource,
             object : GdMusicApi.TrackCallback {
+                override fun isActive(): Boolean = CacheGeneration.isCurrent(generation) &&
+                    playableLyricKey == "${track.source}:${track.id}"
+
                 override fun onSuccess(updatedTrack: Track) {
                     runOnUiThread {
                         CacheGeneration.runIfCurrent(generation) {
+                            if (!isActive()) return@runIfCurrent
                             lyricCache[cacheKey] = updatedTrack
                             lyricCache[lyricCacheKey(track, updatedTrack.source)] = updatedTrack
                             callback(Result.success(updatedTrack))
@@ -743,6 +762,7 @@ class ComposeMainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        playableLyricKey = null
         AppCaches.removeListener(clearCacheListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null

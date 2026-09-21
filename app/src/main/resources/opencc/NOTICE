@@ -1,0 +1,4 @@
+OpenCC 1.1.9 dictionary data, Copyright 2010-2024 BYVoid and contributors.
+Source: https://github.com/BYVoid/OpenCC/tree/ver.1.1.9/data/dictionary
+TSCharacters.txt and STCharacters.txt are bundled unmodified under the Apache License 2.0 (see LICENSE).
+GD Music uses the first character mapping for search/matching only, not full phrase-level OpenCC conversion.

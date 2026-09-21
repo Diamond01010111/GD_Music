@@ -24,10 +24,17 @@ public class GdMusicApi {
     private static final String[] PLAYABLE_SOURCES = {
             "netease",
             "joox",
+            "kuwo",
             "bilibili"
     };
 
-    private final OkHttpClient client = new OkHttpClient();
+    private final OkHttpClient client = new OkHttpClient.Builder()
+            .retryOnConnectionFailure(false).followRedirects(false).followSslRedirects(false).build();
+
+    public static final class RateLimitException extends IOException {
+        private static final long serialVersionUID = 1L;
+        public RateLimitException() { super("GD API 已达 50 次/5 分钟，请稍后重试"); }
+    }
 
     public interface SearchCallback {
         void onSuccess(List<Track> tracks);
@@ -35,6 +42,7 @@ public class GdMusicApi {
     }
 
     public interface TrackCallback {
+        default boolean isActive() { return true; }
         void onSuccess(Track track);
         void onError(Exception e);
     }
@@ -45,6 +53,12 @@ public class GdMusicApi {
             TrackCallback callback
     ) {
         List<String> sources = orderedSources(reference, null);
+        tryResolveAudioSource(reference, br, sources, 0, callback);
+    }
+
+    public void resolveAfterPlaybackFailure(Track reference, int br, TrackCallback callback) {
+        List<String> sources = orderedSources(reference, null);
+        sources.remove(reference.source); // Do not retry the same stream that just failed.
         tryResolveAudioSource(reference, br, sources, 0, callback);
     }
 
@@ -100,7 +114,7 @@ public class GdMusicApi {
         }
 
         String source = sources.get(sourceIndex);
-        searchTracks(reference.name, source, 15, 1, new SearchCallback() {
+        searchTracks("joox".equals(source) ? ChineseText.traditional(reference.name) : reference.name, source, 15, 1, new SearchCallback() {
             @Override
             public void onSuccess(List<Track> tracks) {
                 List<Track> matches = matchingArtistCandidates(reference, tracks);
@@ -117,6 +131,7 @@ public class GdMusicApi {
 
             @Override
             public void onError(Exception e) {
+                if (e instanceof RateLimitException) { callback.onError(e); return; }
                 tryResolveAudioSource(reference, br, sources, sourceIndex + 1, callback);
             }
         });
@@ -162,6 +177,7 @@ public class GdMusicApi {
 
             @Override
             public void onError(Exception e) {
+                if (e instanceof RateLimitException) { callback.onError(e); return; }
                 tryPlayableCandidate(
                         reference,
                         br,
@@ -181,6 +197,7 @@ public class GdMusicApi {
             int sourceIndex,
             TrackCallback callback
     ) {
+        if (!callback.isActive()) return;
         if (sourceIndex >= sources.size()) {
             callback.onError(new Exception("所有可用来源均未找到歌词"));
             return;
@@ -192,6 +209,7 @@ public class GdMusicApi {
             getLyric(direct, new TrackCallback() {
                 @Override
                 public void onSuccess(Track resolved) {
+                if (!callback.isActive()) return;
                     if (present(resolved.lyric)) {
                         callback.onSuccess(resolved);
                     } else {
@@ -201,13 +219,14 @@ public class GdMusicApi {
 
                 @Override
                 public void onError(Exception e) {
+                    if (e instanceof RateLimitException) { callback.onError(e); return; }
                     tryResolveLyricSource(reference, sources, sourceIndex + 1, callback);
                 }
             });
             return;
         }
 
-        searchTracks(reference.name, source, 15, 1, new SearchCallback() {
+        searchTracks("joox".equals(source) ? ChineseText.traditional(reference.name) : reference.name, source, 15, 1, new SearchCallback() {
             @Override
             public void onSuccess(List<Track> tracks) {
                 tryLyricCandidate(
@@ -222,6 +241,7 @@ public class GdMusicApi {
 
             @Override
             public void onError(Exception e) {
+                if (e instanceof RateLimitException) { callback.onError(e); return; }
                 tryResolveLyricSource(reference, sources, sourceIndex + 1, callback);
             }
         });
@@ -235,6 +255,7 @@ public class GdMusicApi {
             int candidateIndex,
             TrackCallback callback
     ) {
+        if (!callback.isActive()) return;
         if (candidateIndex >= candidates.size()) {
             tryResolveLyricSource(reference, sources, sourceIndex + 1, callback);
             return;
@@ -255,6 +276,7 @@ public class GdMusicApi {
         getLyric(candidate, new TrackCallback() {
             @Override
             public void onSuccess(Track resolved) {
+                if (!callback.isActive()) return;
                 if (present(resolved.lyric)) {
                     callback.onSuccess(resolved);
                 } else {
@@ -271,6 +293,7 @@ public class GdMusicApi {
 
             @Override
             public void onError(Exception e) {
+                if (e instanceof RateLimitException) { callback.onError(e); return; }
                 tryLyricCandidate(
                         reference,
                         sources,
@@ -358,7 +381,7 @@ public class GdMusicApi {
         if (value == null) {
             return "";
         }
-        return Normalizer.normalize(value, Normalizer.Form.NFKC)
+        return ChineseText.simplified(Normalizer.normalize(value, Normalizer.Form.NFKC))
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("[^\\p{L}\\p{N}]", "");
     }
@@ -414,7 +437,10 @@ public class GdMusicApi {
                     .get()
                     .build();
 
-            RequestTracker.record();
+            if (!RequestTracker.tryAcquire()) {
+                callback.onError(new RateLimitException());
+                return;
+            }
             client.newCall(request).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {
@@ -511,7 +537,10 @@ public class GdMusicApi {
                     .get()
                     .build();
 
-            RequestTracker.record();
+            if (!RequestTracker.tryAcquire()) {
+                callback.onError(new RateLimitException());
+                return;
+            }
             client.newCall(request).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {
@@ -556,7 +585,10 @@ public class GdMusicApi {
 
             Request request = new Request.Builder().url(url).get().build();
 
-            RequestTracker.record();
+            if (!RequestTracker.tryAcquire()) {
+                callback.onError(new RateLimitException());
+                return;
+            }
             client.newCall(request).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {
@@ -599,7 +631,10 @@ public class GdMusicApi {
 
             Request request = new Request.Builder().url(url).get().build();
 
-            RequestTracker.record();
+            if (!RequestTracker.tryAcquire()) {
+                callback.onError(new RateLimitException());
+                return;
+            }
             client.newCall(request).enqueue(new Callback() {
                 @Override
                 public void onFailure(Call call, IOException e) {

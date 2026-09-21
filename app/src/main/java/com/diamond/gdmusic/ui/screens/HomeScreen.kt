@@ -927,7 +927,7 @@ private fun AppDrawer(
         AlertDialog(
             onDismissRequest = { confirmClearCache = false },
             title = { Text("清理缓存？") },
-            text = { Text("将清理封面图片、歌词、歌单及推荐缓存，之后按需重新加载。\n\n收藏、我喜欢的、最近播放、搜索和浏览记录、网易云用户 ID、设置及 API 请求计数会保留，当前播放和队列不受影响。") },
+            text = { Text("将清理非收藏封面图片、歌词、歌单及推荐缓存，之后按需重新加载。\n\n收藏及其封面、我喜欢的、最近播放、搜索和浏览记录、网易云用户 ID、设置及 API 请求计数会保留，当前播放和队列不受影响。") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmClearCache = false
