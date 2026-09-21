@@ -36,6 +36,11 @@ public class GdMusicApi {
         public RateLimitException() { super("GD API 已达 50 次/5 分钟，请稍后重试"); }
     }
 
+    public static final class SourcesExhaustedException extends IOException {
+        private static final long serialVersionUID = 1L;
+        SourcesExhaustedException(String message) { super(message); }
+    }
+
     public interface SearchCallback {
         void onSuccess(List<Track> tracks);
         void onError(Exception e);
@@ -101,12 +106,13 @@ public class GdMusicApi {
             int sourceIndex,
             TrackCallback callback
     ) {
+        if (!callback.isActive()) return;
         if (!validReference(reference)) {
             callback.onError(new IllegalArgumentException("外部歌曲缺少歌曲名或歌手"));
             return;
         }
         if (sourceIndex >= sources.size()) {
-            callback.onError(new Exception(
+            callback.onError(new SourcesExhaustedException(
                     "没有找到歌手匹配且可播放的音源："
                             + reference.name + " - " + reference.artist
             ));
@@ -146,7 +152,8 @@ public class GdMusicApi {
             int candidateIndex,
             TrackCallback callback
     ) {
-        if (candidateIndex >= candidates.size()) {
+        if (!callback.isActive()) return;
+        if (candidateIndex >= Math.min(3, candidates.size())) {
             tryResolveAudioSource(reference, br, sources, sourceIndex + 1, callback);
             return;
         }
@@ -155,6 +162,7 @@ public class GdMusicApi {
         getAudioUrl(candidate, br, new TrackCallback() {
             @Override
             public void onSuccess(Track resolved) {
+                if (!callback.isActive()) return;
                 if (!present(resolved.audioUrl)) {
                     tryPlayableCandidate(
                             reference,
@@ -256,7 +264,7 @@ public class GdMusicApi {
             TrackCallback callback
     ) {
         if (!callback.isActive()) return;
-        if (candidateIndex >= candidates.size()) {
+        if (candidateIndex >= Math.min(1, candidates.size())) {
             tryResolveLyricSource(reference, sources, sourceIndex + 1, callback);
             return;
         }
@@ -309,7 +317,9 @@ public class GdMusicApi {
     private List<String> orderedSources(Track reference, String preferredSource) {
         List<String> sources = new ArrayList<>();
         addSource(sources, preferredSource);
-        addSource(sources, reference == null ? null : reference.source);
+        if (reference != null && java.util.Arrays.asList(PLAYABLE_SOURCES).contains(reference.source)) {
+            addSource(sources, reference.source);
+        }
         for (String source : PLAYABLE_SOURCES) {
             addSource(sources, source);
         }
@@ -328,25 +338,19 @@ public class GdMusicApi {
                 && present(reference.artist);
     }
 
-    private List<Track> matchingArtistCandidates(Track reference, List<Track> tracks) {
-        List<Track> exactTitleMatches = new ArrayList<>();
-        List<Track> otherMatches = new ArrayList<>();
-        String referenceTitle = normalizeText(reference.name);
-        if (tracks == null) {
-            return exactTitleMatches;
-        }
+    static List<Track> matchingArtistCandidates(Track reference, List<Track> tracks) {
+        List<Track> matches = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        String title = normalizeText(reference.name);
+        if (tracks == null) return matches;
         for (Track candidate : tracks) {
-            if (!hasMatchingArtist(reference.artist, candidate.artist)) {
-                continue;
-            }
-            if (referenceTitle.equals(normalizeText(candidate.name))) {
-                exactTitleMatches.add(candidate);
-            } else {
-                otherMatches.add(candidate);
+            if (candidate != null && title.equals(normalizeText(candidate.name))
+                    && hasMatchingArtist(reference.artist, candidate.artist)
+                    && seen.add(candidate.source + ":" + candidate.id)) {
+                matches.add(candidate);
             }
         }
-        exactTitleMatches.addAll(otherMatches);
-        return exactTitleMatches;
+        return matches;
     }
 
     static boolean hasMatchingArtist(String first, String second) {

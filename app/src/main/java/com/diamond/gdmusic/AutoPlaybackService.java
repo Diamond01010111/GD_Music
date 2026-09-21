@@ -153,6 +153,16 @@ public final class AutoPlaybackService extends MediaLibraryService {
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(
                         new DefaultMediaSourceFactory(resolvingDataSourceFactory)
+                                .setLoadErrorHandlingPolicy(new androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+                                    @Override
+                                    public long getRetryDelayMsFor(
+                                            androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo info) {
+                                        for (Throwable cause = info.exception; cause != null; cause = cause.getCause()) {
+                                            if (cause instanceof AudioResolutionException) return C.TIME_UNSET;
+                                        }
+                                        return super.getRetryDelayMsFor(info);
+                                    }
+                                })
                 )
                 .build();
         RequestTracker.initialize(this);
@@ -176,10 +186,8 @@ public final class AutoPlaybackService extends MediaLibraryService {
                     return;
                 }
                 requestMissingArtwork(player.getCurrentMediaItem());
-                MediaItem currentItem = player.getCurrentMediaItem();
-                if (currentItem != null) {
-                    sourceRecoveryItems.remove(currentItem.mediaId);
-                }
+                // READY can be transient. Keep the recovery marker for this queue item
+                // so a later stream failure cannot restart fallback indefinitely.
             }
 
             @Override
@@ -1091,7 +1099,11 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 "Playback failed for " + mediaId + "; error=" + error.getErrorCodeName()
         );
 
-        if (sourceRecoveryItems.add(mediaId) && retryItemWithOtherSources(failedIndex, mediaId)) {
+        boolean exhausted = false;
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof GdMusicApi.SourcesExhaustedException) exhausted = true;
+        }
+        if (!exhausted && sourceRecoveryItems.add(mediaId) && retryItemWithOtherSources(failedIndex, mediaId)) {
             return;
         }
 
@@ -1304,13 +1316,24 @@ public final class AutoPlaybackService extends MediaLibraryService {
         return dataSpec.withUri(Uri.parse(resolved.audioUrl));
     }
 
+    private static final class AudioResolutionException extends IOException {
+        private static final long serialVersionUID = 1L;
+        AudioResolutionException(String message) { super(message); }
+        AudioResolutionException(String message, Throwable cause) { super(message, cause); }
+    }
+
     private Track resolveTrackBlocking(Track track, boolean recovering) throws IOException {
         CountDownLatch latch = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean active = new java.util.concurrent.atomic.AtomicBoolean(true);
         AtomicReference<Track> result = new AtomicReference<>();
         AtomicReference<Exception> failure = new AtomicReference<>();
         GdMusicApi.TrackCallback callback = new GdMusicApi.TrackCallback() {
             @Override
+            public boolean isActive() { return active.get(); }
+
+            @Override
             public void onSuccess(Track resolvedTrack) {
+                if (!isActive()) return;
                 result.set(resolvedTrack);
                 latch.countDown();
             }
@@ -1335,17 +1358,19 @@ public final class AutoPlaybackService extends MediaLibraryService {
 
         try {
             if (!latch.await(SOURCE_RESOLVE_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                throw new IOException("获取播放地址超时：" + track.name);
+                throw new AudioResolutionException("获取播放地址超时：" + track.name);
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
-            throw new IOException("获取播放地址被中断：" + track.name, error);
+            throw new AudioResolutionException("获取播放地址被中断：" + track.name, error);
+        } finally {
+            active.set(false); // Late responses must not schedule another candidate/source.
         }
 
         if (result.get() != null) {
             return result.get();
         }
-        throw new IOException("获取播放地址失败：" + track.name, failure.get());
+        throw new AudioResolutionException("获取播放地址失败：" + track.name, failure.get());
     }
 
     private boolean hasValidAudioUrl(Track track) {
