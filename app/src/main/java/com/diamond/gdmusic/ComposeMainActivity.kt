@@ -249,7 +249,10 @@ class ComposeMainActivity : ComponentActivity() {
 
                         onPlayPause = {
                             controllerOrWarn()?.let { player ->
-                                if (player.isPlaying) player.pause() else player.play()
+                                if (player.isPlaying) player.pause() else {
+                                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                                    player.play()
+                                }
                             }
                         },
 
@@ -279,6 +282,7 @@ class ComposeMainActivity : ComponentActivity() {
                             controllerOrWarn()?.let { player ->
                                 if (index in 0 until player.mediaItemCount) {
                                     player.seekToDefaultPosition(index)
+                                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
                                     player.play()
                                 }
                             }
