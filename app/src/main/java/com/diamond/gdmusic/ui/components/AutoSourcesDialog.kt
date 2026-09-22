@@ -94,7 +94,8 @@ private suspend fun verifySource(api: GdMusicApi, source: String, keyword: Strin
         })
     }
     if (search.isFailure) return if (search.exceptionOrNull() is GdMusicApi.RateLimitException)
-        "额度不足，未完成验证" else "搜索失败，未完成验证"
+        "额度不足，未完成验证" else if (search.exceptionOrNull() is SourceUnavailableException) "音源暂时不可用"
+        else "搜索失败，未完成验证"
     val tracks = search.getOrThrow().distinctBy { it.id }.take(3)
     if (tracks.isEmpty()) return "搜索无结果，请更换搜索词"
     for (track in tracks) {
@@ -111,6 +112,7 @@ private suspend fun verifySource(api: GdMusicApi, source: String, keyword: Strin
                 }
             })
         }
+        if (result.exceptionOrNull() is SourceUnavailableException) return "音源暂时不可用"
         if (result.isSuccess) return "可获取播放地址（不保证全部歌曲可播）"
         if (result.exceptionOrNull() is GdMusicApi.RateLimitException) return "额度不足，未完成验证"
     }

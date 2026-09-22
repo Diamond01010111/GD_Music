@@ -163,15 +163,8 @@ public class GdMusicApi {
             public void onSuccess(Track resolved) {
                 if (!callback.isActive()) return;
                 if (!present(resolved.audioUrl)) {
-                    tryPlayableCandidate(
-                            reference,
-                            br,
-                            sources,
-                            sourceIndex,
-                            candidates,
-                            candidateIndex + 1,
-                            callback
-                    );
+                    SourceUnavailableException.report(sources.get(sourceIndex), "播放地址为空");
+                    tryResolveAudioSource(reference, br, sources, sourceIndex + 1, callback);
                     return;
                 }
                 if (!present(resolved.picUrl) && present(reference.picUrl)) {
@@ -185,6 +178,10 @@ public class GdMusicApi {
             @Override
             public void onError(Exception e) {
                 if (e instanceof RateLimitException) { callback.onError(e); return; }
+                if (e instanceof SourceUnavailableException) {
+                    tryResolveAudioSource(reference, br, sources, sourceIndex + 1, callback);
+                    return;
+                }
                 tryPlayableCandidate(
                         reference,
                         br,
@@ -301,6 +298,10 @@ public class GdMusicApi {
             @Override
             public void onError(Exception e) {
                 if (e instanceof RateLimitException) { callback.onError(e); return; }
+                if (e instanceof SourceUnavailableException) {
+                    tryResolveLyricSource(reference, sources, sourceIndex + 1, callback);
+                    return;
+                }
                 tryLyricCandidate(
                         reference,
                         sources,
@@ -558,7 +559,7 @@ public class GdMusicApi {
                     try {
                         String body = requireSuccessfulBody(response, "播放地址");
                         JSONObject obj = parseObject(body, "播放地址");
-                        track.audioUrl = requireHttpUrl(obj, "url", "播放地址", body);
+                        track.audioUrl = parseAudioUrl(track.source, obj, body);
                         track.audioUrlCachedAt = System.currentTimeMillis();
 
                         callback.onSuccess(track);
@@ -672,7 +673,19 @@ public class GdMusicApi {
         }
     }
 
-    private String requireSuccessfulBody(Response response, String endpoint) throws Exception {
+    String parseAudioUrl(String source, JSONObject object, String body) throws Exception {
+        if (!present(validOptionalString(object, "url", "").trim())) {
+            throw SourceUnavailableException.report(source, "播放地址为空");
+        }
+        return requireHttpUrl(object, "url", "播放地址", body);
+    }
+
+    String requireSuccessfulBody(Response response, String endpoint) throws Exception {
+        if (response.code() == 503) {
+            String source = response.request().url().queryParameter("source");
+            response.close();
+            throw SourceUnavailableException.report(source == null ? "未知" : source, "HTTP 503");
+        }
         String body = response.body() == null ? "" : response.body().string();
         String trimmed = body.trim();
         if (!response.isSuccessful()) {

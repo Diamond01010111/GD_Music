@@ -32,6 +32,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import com.diamond.gdmusic.SourceUnavailableException
+import com.diamond.gdmusic.model.supportedMusicSources
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -313,7 +320,19 @@ fun MusicApp(
         onRootBack()
     }
 
+    val sourceSnackbar = remember { SnackbarHostState() }
+    val noticeScope = rememberCoroutineScope()
+    DisposableEffect(Unit) {
+        val listener = SourceUnavailableException.Listener { source ->
+            val name = supportedMusicSources.firstOrNull { it.value == source }?.label ?: source
+            noticeScope.launch { sourceSnackbar.showSnackbar("${name}音源暂时不可用") }
+        }
+        SourceUnavailableException.addListener(listener)
+        onDispose { SourceUnavailableException.removeListener(listener) }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(sourceSnackbar) },
         modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets.safeDrawing,
 
