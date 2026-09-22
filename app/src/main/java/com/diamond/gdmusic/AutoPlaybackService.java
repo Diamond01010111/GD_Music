@@ -98,6 +98,10 @@ public final class AutoPlaybackService extends MediaLibraryService {
     private final Set<String> failedPlaybackItems = ConcurrentHashMap.newKeySet();
     private Handler playbackHandler;
     private volatile boolean destroyed;
+    private boolean restoringPlayback = true;
+    private static final String PLAYBACK_PREFS = "playback_session";
+    private static final SessionCommand CYCLE_MODE_COMMAND = new SessionCommand(
+            "com.diamond.gdapplication.command.CYCLE_PLAYBACK_MODE", Bundle.EMPTY);
     private final Runnable clearCacheListener = this::clearBrowsingCaches;
 
     /** Called on the main thread; never changes the player timeline or position. */
@@ -170,12 +174,22 @@ public final class AutoPlaybackService extends MediaLibraryService {
         playbackHandler = new Handler(player.getApplicationLooper());
         player.addListener(new Player.Listener() {
             @Override
+            public void onEvents(Player eventPlayer, Player.Events events) {
+                if (events.containsAny(Player.EVENT_TIMELINE_CHANGED,
+                        Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_REPEAT_MODE_CHANGED,
+                        Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED)) {
+                    savePlayback();
+                    updatePlaybackButtons(TrackMediaItem.toTrack(player.getCurrentMediaItem()));
+                }
+            }
+
+            @Override
             public void onMediaItemTransition(
                     @Nullable MediaItem mediaItem,
                     int reason
             ) {
                 if (player.getPlaybackState() == Player.STATE_READY) requestMissingArtwork(mediaItem);
-                updateFavoriteButton(TrackMediaItem.toTrack(mediaItem));
+                updatePlaybackButtons(TrackMediaItem.toTrack(mediaItem));
                 if (player.isPlaying()) {
                     recordCurrentTrackAsPlayed();
                 }
@@ -212,6 +226,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
         );
         player.setHandleAudioBecomingNoisy(true);
         player.setRepeatMode(Player.REPEAT_MODE_ALL);
+        restorePlayback();
 
         Intent sessionActivityIntent = new Intent(this, ComposeMainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -232,8 +247,8 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 // can extrapolate the playing position between real state/seek events.
                 .setPeriodicPositionUpdateEnabled(false)
                 .setSessionActivity(sessionActivity)
-                .setMediaButtonPreferences(favoriteButtonPreferences(null))
-                .setCustomLayout(favoriteButtonPreferences(null))
+                .setMediaButtonPreferences(playbackButtonPreferences(TrackMediaItem.toTrack(player.getCurrentMediaItem())))
+                .setCustomLayout(playbackButtonPreferences(TrackMediaItem.toTrack(player.getCurrentMediaItem())))
                 .build();
         AppCaches.addListener(clearCacheListener);
     }
@@ -246,6 +261,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
 
     @Override
     public void onDestroy() {
+        savePlayback();
         destroyed = true;
         AppCaches.removeListener(clearCacheListener);
         pendingArtworkItems.clear();
@@ -256,6 +272,56 @@ public final class AutoPlaybackService extends MediaLibraryService {
         mediaLibrarySession.release();
         player.release();
         super.onDestroy();
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        savePlayback();
+        super.onTaskRemoved(rootIntent);
+    }
+
+    private PlaybackSnapshot.Mode currentMode() {
+        if (player.getShuffleModeEnabled()) return PlaybackSnapshot.Mode.RANDOM;
+        return player.getRepeatMode() == Player.REPEAT_MODE_ONE
+                ? PlaybackSnapshot.Mode.SINGLE_LOOP : PlaybackSnapshot.Mode.LIST_LOOP;
+    }
+
+    private void savePlayback() {
+        if (restoringPlayback || destroyed || player == null) return;
+        List<Track> tracks = new ArrayList<>();
+        int currentIndex = 0;
+        for (int i = 0; i < player.getMediaItemCount(); i++) {
+            Track track = TrackMediaItem.toTrack(player.getMediaItemAt(i));
+            if (track == null) continue;
+            if (i <= player.getCurrentMediaItemIndex()) currentIndex = tracks.size();
+            tracks.add(track);
+        }
+        getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE).edit().putString("snapshot",
+                new PlaybackSnapshot(tracks, currentIndex, currentMode()).encode()).apply();
+    }
+
+    private void restorePlayback() {
+        PlaybackSnapshot snapshot = PlaybackSnapshot.decode(
+                getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE).getString("snapshot", ""));
+        player.setRepeatMode(snapshot.mode == PlaybackSnapshot.Mode.SINGLE_LOOP
+                ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_ALL);
+        player.setShuffleModeEnabled(snapshot.mode == PlaybackSnapshot.Mode.RANDOM);
+        List<MediaItem> items = new ArrayList<>();
+        for (int i = 0; i < snapshot.tracks.size(); i++) {
+            Track track = snapshot.tracks.get(i);
+            items.add(trackItem("restored:" + i + ":" + track.source + ":" + track.id, track));
+        }
+        player.setPlayWhenReady(false);
+        if (!items.isEmpty()) player.setMediaItems(items, snapshot.currentIndex, 0L);
+        // Remain idle until an explicit play action; restoring must not fetch audio.
+        restoringPlayback = false;
+    }
+
+    private void cyclePlaybackMode() {
+        PlaybackSnapshot.Mode mode = currentMode();
+        player.setShuffleModeEnabled(mode == PlaybackSnapshot.Mode.SINGLE_LOOP);
+        player.setRepeatMode(mode == PlaybackSnapshot.Mode.LIST_LOOP
+                ? Player.REPEAT_MODE_ONE : Player.REPEAT_MODE_ALL);
     }
 
     private void requestMissingArtwork(@Nullable MediaItem mediaItem) {
@@ -395,8 +461,9 @@ public final class AutoPlaybackService extends MediaLibraryService {
                     : MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_AND_LIBRARY_COMMANDS;
             SessionCommands availableCommands = baseCommands.buildUpon()
                     .add(TOGGLE_LIKED_COMMAND)
+                    .add(CYCLE_MODE_COMMAND)
                     .build();
-            List<CommandButton> buttons = favoriteButtonPreferences(
+            List<CommandButton> buttons = playbackButtonPreferences(
                     TrackMediaItem.toTrack(player.getCurrentMediaItem())
             );
             return new MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
@@ -413,6 +480,10 @@ public final class AutoPlaybackService extends MediaLibraryService {
                 SessionCommand customCommand,
                 Bundle args
         ) {
+            if (CYCLE_MODE_COMMAND.equals(customCommand)) {
+                cyclePlaybackMode();
+                return Futures.immediateFuture(new SessionResult(SessionResult.RESULT_SUCCESS));
+            }
             if (!TOGGLE_LIKED_COMMAND.equals(customCommand)) {
                 return MediaLibrarySession.Callback.super.onCustomCommand(
                         session,
@@ -434,7 +505,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
             } else {
                 playlistStore.addToLiked(current);
             }
-            updateFavoriteButton(current);
+            updatePlaybackButtons(current);
             return Futures.immediateFuture(
                     new SessionResult(SessionResult.RESULT_SUCCESS)
             );
@@ -620,7 +691,7 @@ public final class AutoPlaybackService extends MediaLibraryService {
         }
     }
 
-    private List<CommandButton> favoriteButtonPreferences(@Nullable Track track) {
+    private List<CommandButton> playbackButtonPreferences(@Nullable Track track) {
         boolean liked = track != null && playlistStore.isLiked(track);
         CommandButton button = new CommandButton.Builder(
                 liked ? CommandButton.ICON_HEART_FILLED : CommandButton.ICON_HEART_UNFILLED
@@ -632,14 +703,25 @@ public final class AutoPlaybackService extends MediaLibraryService {
                         CommandButton.SLOT_OVERFLOW
                 )
                 .build();
-        return ImmutableList.of(button);
+        PlaybackSnapshot.Mode mode = currentMode();
+        int icon = mode == PlaybackSnapshot.Mode.RANDOM ? CommandButton.ICON_SHUFFLE_ON
+                : mode == PlaybackSnapshot.Mode.SINGLE_LOOP ? CommandButton.ICON_REPEAT_ONE
+                : CommandButton.ICON_REPEAT_ALL;
+        String label = mode == PlaybackSnapshot.Mode.RANDOM ? "随机播放"
+                : mode == PlaybackSnapshot.Mode.SINGLE_LOOP ? "单曲循环" : "列表循环";
+        CommandButton modeButton = new CommandButton.Builder(icon)
+                .setSessionCommand(CYCLE_MODE_COMMAND)
+                .setDisplayName(label)
+                .setSlots(CommandButton.SLOT_BACK_SECONDARY, CommandButton.SLOT_OVERFLOW)
+                .build();
+        return ImmutableList.of(modeButton, button);
     }
 
-    private void updateFavoriteButton(@Nullable Track track) {
+    private void updatePlaybackButtons(@Nullable Track track) {
         if (mediaLibrarySession == null || destroyed) {
             return;
         }
-        List<CommandButton> buttons = favoriteButtonPreferences(track);
+        List<CommandButton> buttons = playbackButtonPreferences(track);
         MediaSession.ControllerInfo notificationController =
                 mediaLibrarySession.getMediaNotificationControllerInfo();
         if (notificationController == null) {
