@@ -42,6 +42,7 @@ public class LocalPlaylistStore {
                 Context.MODE_PRIVATE
         );
         migrateLegacyFavoritesIfNeeded();
+        ensureLikedPlaylistExists();
     }
 
     public List<LocalPlaylist> getPlaylists() {
@@ -78,6 +79,14 @@ public class LocalPlaylistStore {
         }
 
         List<LocalPlaylist> playlists = getPlaylists();
+        if (LIKED_PLAYLIST_NAME.equals(normalizedName)) {
+            for (LocalPlaylist existing : playlists) {
+                if (LIKED_PLAYLIST_NAME.equals(existing.name)) {
+                    return existing;
+                }
+            }
+        }
+
         LocalPlaylist playlist = new LocalPlaylist(
                 UUID.randomUUID().toString(),
                 normalizedName,
@@ -223,6 +232,9 @@ public class LocalPlaylistStore {
 
         for (int index = 0; index < playlists.size(); index++) {
             if (playlists.get(index).id.equals(playlistId)) {
+                if (LIKED_PLAYLIST_NAME.equals(playlists.get(index).name)) {
+                    return false;
+                }
                 playlists.remove(index);
                 savePlaylists(playlists);
                 return true;
@@ -361,6 +373,27 @@ public class LocalPlaylistStore {
         }
 
         return null;
+    }
+
+    private void ensureLikedPlaylistExists() {
+        List<LocalPlaylist> playlists = getPlaylists();
+        for (LocalPlaylist playlist : playlists) {
+            if (LIKED_PLAYLIST_NAME.equals(playlist.name)) {
+                moveLikedPlaylistFirst(playlists);
+                savePlaylists(playlists);
+                return;
+            }
+        }
+
+        playlists.add(
+                0,
+                new LocalPlaylist(
+                        UUID.randomUUID().toString(),
+                        LIKED_PLAYLIST_NAME,
+                        new ArrayList<>()
+                )
+        );
+        savePlaylists(playlists);
     }
 
     private void migrateLegacyFavoritesIfNeeded() {
