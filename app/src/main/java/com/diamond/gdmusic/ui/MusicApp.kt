@@ -44,6 +44,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -141,7 +143,12 @@ fun MusicApp(
     onRootBack: () -> Unit
 ) {
     val appContext = LocalContext.current.applicationContext
-    var currentPage by remember {
+    var currentPage by rememberSaveable(
+        stateSaver = Saver(
+            save = { page: AppPage -> page.name },
+            restore = { saved -> AppPage.entries.firstOrNull { it.name == saved } ?: AppPage.HOME }
+        )
+    ) {
         mutableStateOf(AppPage.HOME)
     }
 
