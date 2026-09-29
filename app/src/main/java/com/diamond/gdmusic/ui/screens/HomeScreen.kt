@@ -913,6 +913,16 @@ private fun DetailHeader(title: String, onBack: () -> Unit) {
 }
 
 @Composable
+private fun DrawerText(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodyMedium,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
+
+@Composable
 private fun AppDrawer(
     requestCount: Int,
     defaultBitrate: Int,
@@ -947,16 +957,19 @@ private fun AppDrawer(
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         ) {
-            ListItem(headlineContent = { Text("最近 5 分钟 GD 音乐台请求") }, supportingContent = { Text("$requestCount / 50") })
             ListItem(
-                headlineContent = { Text("深色模式") },
+                headlineContent = { DrawerText("最近 5 分钟 GD 音乐台请求") },
+                supportingContent = { DrawerText("$requestCount / 50") }
+            )
+            ListItem(
+                headlineContent = { DrawerText("深色模式") },
                 trailingContent = { Switch(checked = darkMode, onCheckedChange = onDarkModeChange) },
                 modifier = Modifier.fillMaxWidth().clickable { onDarkModeChange(!darkMode) }
             )
             HorizontalDivider()
-            Text("设置", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp))
+            Box(Modifier.padding(start = 20.dp, top = 18.dp, bottom = 6.dp)) { DrawerText("设置") }
             NavigationDrawerItem(
-                label = { Text("默认音质：${AudioQuality.fromBitrate(defaultBitrate).label}") },
+                label = { DrawerText("默认音质：${AudioQuality.fromBitrate(defaultBitrate).label}") },
                 selected = false,
                 icon = { Icon(Icons.Default.LibraryMusic, contentDescription = null) },
                 onClick = { showQualityChoices = !showQualityChoices },
@@ -965,7 +978,7 @@ private fun AppDrawer(
             if (showQualityChoices) {
                 AudioQuality.entries.forEach { quality ->
                     NavigationDrawerItem(
-                        label = { Text(quality.label) },
+                        label = { DrawerText(quality.label) },
                         selected = quality.bitrate == defaultBitrate,
                         onClick = { onDefaultBitrateChange(quality.bitrate); showQualityChoices = false },
                         modifier = Modifier.padding(start = 32.dp, end = 12.dp)
@@ -973,13 +986,13 @@ private fun AppDrawer(
                 }
             }
             NavigationDrawerItem(
-                label = { Text("自动换源") },
+                label = { DrawerText("自动换源") },
                 selected = false,
                 onClick = { showAutoSources = true },
                 modifier = Modifier.padding(horizontal = 12.dp)
             )
             NavigationDrawerItem(
-                label = { Text("清理缓存") },
+                label = { DrawerText("清理缓存") },
                 selected = false,
                 onClick = { confirmClearCache = true },
                 modifier = Modifier.padding(horizontal = 12.dp)
