@@ -22,11 +22,26 @@
 
         <activity
             android:name=".ComposeMainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="gd-music-share-api.gdmusic.workers.dev"
+                    android:pathPrefix="/import/" />
+                <data
+                    android:scheme="https"
+                    android:host="gd-music-share-api.gdmusic.workers.dev"
+                    android:pathPrefix="/api/playlists/" />
             </intent-filter>
 
         </activity>

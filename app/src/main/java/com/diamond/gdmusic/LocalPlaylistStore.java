@@ -137,6 +137,24 @@ public class LocalPlaylistStore {
         return playlist;
     }
 
+    public LocalPlaylist importPlaylist(String name, List<Track> importedTracks) {
+        String baseName = name == null ? "" : name.trim();
+        if (baseName.isEmpty() || importedTracks == null || importedTracks.isEmpty()) {
+            return null;
+        }
+
+        List<LocalPlaylist> playlists = getPlaylists();
+        String candidate = baseName;
+        int suffix = 1;
+        while (containsPlaylistName(playlists, candidate)) {
+            candidate = suffix == 1
+                    ? baseName + "（导入）"
+                    : baseName + "（导入 " + suffix + "）";
+            suffix++;
+        }
+        return createPlaylist(candidate, importedTracks);
+    }
+
     public boolean addTrackToPlaylist(String playlistId, Track track) {
         if (playlistId == null || track == null || !isValidTrack(track)) {
             return false;
@@ -519,6 +537,15 @@ public class LocalPlaylistStore {
             }
         }
 
+        return false;
+    }
+
+    private boolean containsPlaylistName(List<LocalPlaylist> playlists, String name) {
+        for (LocalPlaylist playlist : playlists) {
+            if (playlist.name.equals(name)) {
+                return true;
+            }
+        }
         return false;
     }
 
