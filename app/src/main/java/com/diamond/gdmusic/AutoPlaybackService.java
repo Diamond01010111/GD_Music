@@ -188,6 +188,13 @@ public final class AutoPlaybackService extends MediaLibraryService {
                     @Nullable MediaItem mediaItem,
                     int reason
             ) {
+                if (mediaItem != null
+                        && reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                    // A repeat is a new playback attempt. Allow one fresh recovery cycle instead
+                    // of carrying the previous loop's failed/recovered state forever.
+                    sourceRecoveryItems.remove(mediaItem.mediaId);
+                    failedPlaybackItems.remove(mediaItem.mediaId);
+                }
                 if (player.getPlaybackState() == Player.STATE_READY) requestMissingArtwork(mediaItem);
                 updatePlaybackButtons(TrackMediaItem.toTrack(mediaItem));
                 if (player.isPlaying()) {
