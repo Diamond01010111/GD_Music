@@ -56,8 +56,18 @@ public class GdMusicApi {
 
     public void resolveAfterPlaybackFailure(Track reference, int br, TrackCallback callback) {
         List<String> sources = orderedSources(reference, null);
-        sources.remove(reference.source); // Do not retry the same stream that just failed.
+        prioritizeCurrentSourceForRecovery(sources, reference.source);
+        // The old stream URL may have expired or may not be reusable. Resolve a fresh URL from
+        // the same source first, then continue through the configured fallback sources.
         tryResolveAudioSource(reference, br, sources, 0, callback);
+    }
+
+    static void prioritizeCurrentSourceForRecovery(List<String> sources, String currentSource) {
+        if (currentSource == null || currentSource.trim().isEmpty()) {
+            return;
+        }
+        sources.remove(currentSource);
+        sources.add(0, currentSource);
     }
 
     public void resolveTrackFromSource(
