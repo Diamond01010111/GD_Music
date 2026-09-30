@@ -388,10 +388,10 @@ private fun SharedPlaylistImportSheet(
     onDismiss: () -> Unit,
     onImport: (List<Track>) -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedIndices by remember(shared.shareId) { mutableStateOf(shared.tracks.indices.toSet()) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(Modifier.fillMaxWidth().fillMaxHeight(0.82f).padding(horizontal = 16.dp)) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f).padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 FavoriteCover(shared.tracks.firstOrNull(), Modifier.size(88.dp))
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
@@ -432,11 +432,21 @@ private fun SharedPlaylistImportSheet(
                     }
                 }
             }
-            Button(
-                enabled = selectedIndices.isNotEmpty(),
-                onClick = { onImport(shared.tracks.filterIndexed { index, _ -> index in selectedIndices }) },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
-            ) { Icon(Icons.Default.Download, contentDescription = null); Text("导入所选歌曲") }
+            Surface(tonalElevation = 3.dp) {
+                Button(
+                    enabled = selectedIndices.isNotEmpty(),
+                    onClick = {
+                        onImport(shared.tracks.filterIndexed { index, _ -> index in selectedIndices })
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(top = 12.dp, bottom = 8.dp)
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null)
+                    Text("导入所选歌曲")
+                }
+            }
         }
     }
 }
