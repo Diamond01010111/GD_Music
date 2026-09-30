@@ -61,6 +61,8 @@ import com.diamond.gdmusic.LocalPlaylistStore
 import com.diamond.gdmusic.PlaybackMode
 import com.diamond.gdmusic.Track
 import com.diamond.gdmusic.data.NeteasePlaylist
+import com.diamond.gdmusic.data.PlaylistShareResult
+import com.diamond.gdmusic.data.SharedPlaylist
 import com.diamond.gdmusic.model.AppPage
 import com.diamond.gdmusic.model.SearchCategory
 import com.diamond.gdmusic.ui.components.AutoSizeSingleLineText
@@ -89,6 +91,7 @@ fun MusicApp(
     defaultBitrate: Int,
     darkMode: Boolean,
     showLyricTranslation: Boolean,
+    pendingPlaylistImportCode: String?,
 
     onRequestSearch: (
         keyword: String,
@@ -108,6 +111,13 @@ fun MusicApp(
         tracks: List<Track>,
         callback: (Result<Unit>) -> Unit
     ) -> Unit,
+    onShareLocalPlaylist: (
+        LocalPlaylistStore.LocalPlaylist,
+        (Result<PlaylistShareResult>) -> Unit
+    ) -> Unit,
+    onLoadSharedPlaylist: (String, (Result<SharedPlaylist>) -> Unit) -> Unit,
+    onImportSharedPlaylist: (String, List<Track>) -> Boolean,
+    onPlaylistImportCodeConsumed: () -> Unit,
 
     onRequestLyrics: (Track, String?, (Result<Track>) -> Unit) -> Unit,
     onSwitchCurrentSource: (Track, String, (Result<Unit>) -> Unit) -> Unit,
@@ -150,6 +160,10 @@ fun MusicApp(
         )
     ) {
         mutableStateOf(AppPage.HOME)
+    }
+
+    LaunchedEffect(pendingPlaylistImportCode) {
+        if (pendingPlaylistImportCode != null) currentPage = AppPage.FAVORITE
     }
 
     var resultKeyword by remember {
@@ -540,6 +554,11 @@ fun MusicApp(
                 AppPage.FAVORITE -> {
                     FavoriteScreen(
                         playlists = localPlaylists,
+                        pendingImportCode = pendingPlaylistImportCode,
+                        onImportCodeConsumed = onPlaylistImportCodeConsumed,
+                        onSharePlaylist = onShareLocalPlaylist,
+                        onLoadSharedPlaylist = onLoadSharedPlaylist,
+                        onImportSharedPlaylist = onImportSharedPlaylist,
                         onPlayAll = { playlist, tracks, index ->
                             com.diamond.gdmusic.data.PlaybackHistoryStore(appContext)
                                 .recordLocalPlaylist(playlist)

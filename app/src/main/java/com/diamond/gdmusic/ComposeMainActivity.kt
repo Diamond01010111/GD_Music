@@ -2,6 +2,7 @@ package com.diamond.gdmusic
 
 import android.Manifest
 import android.content.ComponentName
+import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
@@ -24,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
@@ -31,9 +33,11 @@ import androidx.media3.session.SessionToken
 import com.diamond.gdmusic.model.SearchCategory
 import com.diamond.gdmusic.data.NeteasePlaylist
 import com.diamond.gdmusic.data.NeteasePlaylistRepository
+import com.diamond.gdmusic.data.PlaylistShareRepository
 import com.diamond.gdmusic.ui.MusicApp
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 @UnstableApi
@@ -42,8 +46,10 @@ class ComposeMainActivity : ComponentActivity() {
     private lateinit var api: GdMusicApi
     private lateinit var localPlaylistStore: LocalPlaylistStore
     private lateinit var neteaseRepository: NeteasePlaylistRepository
+    private val playlistShareRepository = PlaylistShareRepository()
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController by mutableStateOf<MediaController?>(null)
+    private var pendingPlaylistImportCode by mutableStateOf<String?>(null)
     private var lastRootBackAt = 0L
     @Volatile private var playableLyricKey: String? = null
     private val lyricCache = ConcurrentHashMap<String, Track>()
@@ -54,6 +60,7 @@ class ComposeMainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handlePlaylistImportIntent(intent)
 
         RequestTracker.initialize(applicationContext)
         AutoSourcePreferences.initialize(applicationContext)
@@ -209,6 +216,7 @@ class ComposeMainActivity : ComponentActivity() {
                         defaultBitrate = defaultBitrate,
                         darkMode = darkMode,
                         showLyricTranslation = showLyricTranslation,
+                        pendingPlaylistImportCode = pendingPlaylistImportCode,
 
                         onRequestSearch = { keyword, category, source, page, callback ->
                             requestTracks(keyword, category, source, page, callback)
@@ -228,6 +236,28 @@ class ComposeMainActivity : ComponentActivity() {
                                 callback(result)
                             }
                         },
+                        onShareLocalPlaylist = { playlist, callback ->
+                            lifecycleScope.launch {
+                                callback(playlistShareRepository.share(playlist))
+                            }
+                        },
+                        onLoadSharedPlaylist = { value, callback ->
+                            lifecycleScope.launch {
+                                callback(playlistShareRepository.load(value))
+                            }
+                        },
+                        onImportSharedPlaylist = { name, tracks ->
+                            val imported = localPlaylistStore.importPlaylist(name, tracks)
+                            localPlaylists = localPlaylistStore.playlists
+                            if (imported != null) {
+                                showToast("已导入歌单：${imported.name}")
+                                true
+                            } else {
+                                showToast("导入歌单失败")
+                                false
+                            }
+                        },
+                        onPlaylistImportCodeConsumed = { pendingPlaylistImportCode = null },
 
                         onDefaultBitrateChange = { bitrate ->
                             PlaybackPreferences.setDefaultBitrate(this, bitrate)
@@ -393,6 +423,17 @@ class ComposeMainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePlaylistImportIntent(intent)
+    }
+
+    private fun handlePlaylistImportIntent(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        pendingPlaylistImportCode = PlaylistShareRepository.extractShareId(intent.dataString)
     }
 
     private fun connectToPlaybackService() {
