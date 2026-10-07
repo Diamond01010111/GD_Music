@@ -40,6 +40,7 @@ import com.diamond.gdmusic.SourceUnavailableException
 import com.diamond.gdmusic.model.supportedMusicSources
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -67,8 +70,10 @@ import com.diamond.gdmusic.data.SharedPlaylist
 import com.diamond.gdmusic.model.AppPage
 import com.diamond.gdmusic.model.SearchCategory
 import com.diamond.gdmusic.ui.components.AutoSizeSingleLineText
+import com.diamond.gdmusic.ui.components.LocalOpenArtistDetail
 import com.diamond.gdmusic.ui.components.MiniPlayer
 import com.diamond.gdmusic.ui.components.QueueBottomSheet
+import com.diamond.gdmusic.ui.screens.ArtistDetailScreen
 import com.diamond.gdmusic.ui.screens.FavoriteScreen
 import com.diamond.gdmusic.ui.screens.HomeScreen
 import com.diamond.gdmusic.ui.screens.NeteasePlaylistScreen
@@ -235,6 +240,8 @@ fun MusicApp(
         mutableStateOf(false)
     }
 
+    var openArtistName by rememberSaveable { mutableStateOf<String?>(null) }
+
     var pendingFavoriteTrack by remember {
         mutableStateOf<Track?>(null)
     }
@@ -378,6 +385,9 @@ fun MusicApp(
         onDispose { SourceUnavailableException.removeListener(listener) }
     }
 
+    CompositionLocalProvider(
+        LocalOpenArtistDetail provides { name -> openArtistName = name }
+    ) {
     Scaffold(
         snackbarHost = { SnackbarHost(sourceSnackbar) },
         modifier = Modifier.fillMaxSize(),
@@ -753,6 +763,32 @@ fun MusicApp(
                 pendingFavoriteTrack = null
             }
         )
+    }
+        openArtistName?.let { name ->
+            Dialog(
+                onDismissRequest = { openArtistName = null },
+                properties = DialogProperties(usePlatformDefaultWidth = false)
+            ) {
+                androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
+                    ArtistDetailScreen(
+                        artistName = name,
+                        onBack = { openArtistName = null },
+                        onPlayAll = onPlayResults,
+                        onPlayTrack = { track ->
+                            if (queue.isEmpty()) onPlayResults(listOf(track), 0)
+                            else onPlaySingleTrack(track)
+                        },
+                        onPlayNext = onPlayNext,
+                        onAddToPlaylist = onAddToPlaylist,
+                        onFavorite = { pendingFavoriteTrack = it },
+                        onSearchAlbum = { album ->
+                            openArtistName = null
+                            executeSearch(album, SearchCategory.ALBUM, "netease")
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
