@@ -64,8 +64,10 @@ class NeteaseArtistRepository {
                 } ?: throw IOException("未找到精确匹配的艺人：$name")
             matched.opt("id")?.toString()?.takeIf { it != "null" && it.isNotBlank() }
                 ?: throw IOException("艺人缺少 ID")
-        }.onSuccess { id -> loadArtist(id, callback) }
-            .onFailure { callback(Result.failure(it)) }
+        }.onResult { result ->
+            result.onSuccess { id -> loadArtist(id, callback) }
+                .onFailure { callback(Result.failure(it)) }
+        }
     }
 
     fun loadArtist(id: String, callback: (Result<NeteaseArtist>) -> Unit) {
@@ -166,27 +168,11 @@ class NeteaseArtistRepository {
 
     private class Pending<T>(val start: ((Result<T>) -> Unit) -> Unit) {
         fun onResult(callback: (Result<T>) -> Unit) = start(callback)
-        fun onSuccess(callback: (T) -> Unit): Pending<T> {
-            val pending = this
-            return Pending { next ->
-                pending.start { result ->
-                    result.onSuccess(callback)
-                    next(result)
-                }
-            }
-        }
-        fun onFailure(callback: (Throwable) -> Unit) {
-            start { result -> result.onFailure(callback) }
-        }
     }
 
     private fun foldChinese(value: String): String {
-        // Include common traditional spellings in matching without changing display metadata.
-        val traditional = "樂愛雲張陳劉楊黃吳鄭謝葉蕭許鄧鍾譚趙孫羅蘇盧馮齊聽風聲夢"
-        val simplified = "乐爱云张陈刘杨黄吴郑谢叶萧许邓钟谭赵孙罗苏卢冯齐听风声梦"
-        return Normalizer.normalize(value, Normalizer.Form.NFKC).map { char ->
-            val index = traditional.indexOf(char)
-            if (index >= 0) simplified[index] else char
-        }.joinToString("").lowercase()
+        return com.diamond.gdmusic.ChineseText.simplified(
+            Normalizer.normalize(value, Normalizer.Form.NFKC)
+        ).lowercase()
     }
 }
