@@ -13,6 +13,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.diamond.gdmusic.Track
@@ -27,6 +29,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.style.TextOverflow
+
+private val resultCategorySaver = Saver<SearchCategory, String>(
+    save = { it.name },
+    restore = { saved -> SearchCategory.entries.firstOrNull { it.name == saved } }
+)
 
 @Composable
 fun SearchResultsScreen(
@@ -49,9 +56,11 @@ fun SearchResultsScreen(
     onFavorite: (Track) -> Unit,
     onPlayNext: (Track) -> Unit
 ) {
-    var query by remember { mutableStateOf(keyword) }
-    var selectedCategory by remember { mutableStateOf(category) }
-    var selectedSource by remember { mutableStateOf(source) }
+    var query by rememberSaveable { mutableStateOf(keyword) }
+    var selectedCategory by rememberSaveable(stateSaver = resultCategorySaver) {
+        mutableStateOf(category)
+    }
+    var selectedSource by rememberSaveable { mutableStateOf(source) }
     var moreTrack by remember { mutableStateOf<Track?>(null) }
     var morePlaylist by remember { mutableStateOf<NeteasePlaylist?>(null) }
     var selectedPlaylist by remember { mutableStateOf<NeteasePlaylist?>(null) }
