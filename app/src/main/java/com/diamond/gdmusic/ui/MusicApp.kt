@@ -903,8 +903,6 @@ private fun FavoriteSheetCover(
     }
 }
 
-private const val SEARCH_PAGE_SIZE = 30
-
 
 private fun encodeSearchTrack(track: Track): String = JSONObject()
     .put("id", track.id.orEmpty())
