@@ -36,7 +36,9 @@ class NeteaseArtistRepository {
     private val handler = Handler(Looper.getMainLooper())
 
     fun findArtist(name: String, callback: (Result<NeteaseArtist>) -> Unit) {
-        val query = Normalizer.normalize(name.trim(), Normalizer.Form.NFKC)
+        val query = com.diamond.gdmusic.ChineseText.simplified(
+            Normalizer.normalize(name.trim(), Normalizer.Form.NFKC)
+        )
         if (query.isBlank()) {
             callback(Result.failure(IllegalArgumentException("艺人名称不能为空")))
             return
