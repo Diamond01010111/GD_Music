@@ -61,6 +61,9 @@ fun SearchResultsScreen(
         mutableStateOf(category)
     }
     var selectedSource by rememberSaveable { mutableStateOf(source) }
+    var displayedRequestKey by rememberSaveable {
+        mutableStateOf(searchRequestKey(keyword, category, source))
+    }
     var moreTrack by remember { mutableStateOf<Track?>(null) }
     var morePlaylist by remember { mutableStateOf<NeteasePlaylist?>(null) }
     var selectedPlaylist by remember { mutableStateOf<NeteasePlaylist?>(null) }
@@ -84,11 +87,15 @@ fun SearchResultsScreen(
     }
 
     LaunchedEffect(keyword, category, source) {
-        closePlaylist()
-        query = keyword
-        selectedCategory = category
-        selectedSource = source
-        if (tracks.isNotEmpty() || playlists.isNotEmpty()) listState.scrollToItem(0)
+        val requestKey = searchRequestKey(keyword, category, source)
+        if (requestKey != displayedRequestKey) {
+            closePlaylist()
+            query = keyword
+            selectedCategory = category
+            selectedSource = source
+            displayedRequestKey = requestKey
+            if (tracks.isNotEmpty() || playlists.isNotEmpty()) listState.scrollToItem(0)
+        }
     }
 
     LaunchedEffect(
@@ -365,6 +372,12 @@ fun SearchResultsScreen(
 }
 
 private const val LOAD_MORE_THRESHOLD = 5
+
+private fun searchRequestKey(
+    keyword: String,
+    category: SearchCategory,
+    source: String
+): String = "$keyword\u0000${category.name}\u0000$source"
 
 private fun resultCount(
     category: SearchCategory,
