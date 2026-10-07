@@ -8,13 +8,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-
-val LocalOpenArtistDetail = staticCompositionLocalOf<(String) -> Unit> { { } }
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.diamond.gdmusic.Track
 import com.diamond.gdmusic.AudioQuality
 import com.diamond.gdmusic.model.supportedMusicSources
+
+val LocalOpenArtistDetail = staticCompositionLocalOf<(String) -> Unit> { { } }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
