@@ -51,6 +51,7 @@ fun ArtistDetailScreen(
 
     fun loadAlbums(id: String) {
         if (loadingAlbums || (offset > 0 && !moreAlbums)) return
+        error = null
         loadingAlbums = true
         val request = generation
         repository.loadAlbums(id, offset) { result ->
@@ -83,8 +84,7 @@ fun ArtistDetailScreen(
     }
 
     LaunchedEffect(artistName) { loadArtist() }
-    LaunchedEffect(selectedAlbum?.id) {
-        val album = selectedAlbum ?: return@LaunchedEffect
+    fun loadAlbumTracks(album: NeteaseAlbum) {
         tracks = emptyList()
         loadingTracks = true
         error = null
@@ -96,6 +96,9 @@ fun ArtistDetailScreen(
                     .onFailure { error = it.message ?: "加载专辑歌曲失败" }
             }
         }
+    }
+    LaunchedEffect(selectedAlbum?.id) {
+        selectedAlbum?.let(::loadAlbumTracks)
     }
     BackHandler {
         if (selectedAlbum != null) {
@@ -117,11 +120,8 @@ fun ArtistDetailScreen(
             Text(it, modifier = Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error)
             TextButton(onClick = {
                 if (artist == null) loadArtist()
-                else if (selectedAlbum != null) {
-                    val current = selectedAlbum
-                    selectedAlbum = null
-                    selectedAlbum = current
-                } else artist?.id?.let(::loadAlbums)
+                else if (selectedAlbum != null) selectedAlbum?.let(::loadAlbumTracks)
+                else artist?.id?.let(::loadAlbums)
             }) { Text("重试") }
         }
         LazyColumn(
