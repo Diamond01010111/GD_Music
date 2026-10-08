@@ -20,7 +20,8 @@ data class NeteaseArtist(
     val aliases: List<String>,
     val coverUrl: String,
     val coverType: String,
-    val description: String
+    val description: String,
+    val hotSongs: List<Track>
 )
 
 data class NeteaseAlbum(
@@ -73,7 +74,10 @@ class NeteaseArtistRepository {
     }
 
     fun loadArtist(id: String, callback: (Result<NeteaseArtist>) -> Unit) {
-        val url = "https://music.163.com/api/v1/artist/$id"
+        val url = "https://music.163.com/api/v1/artist/$id".toHttpUrl().newBuilder()
+            .addQueryParameter("ext", "true")
+            .addQueryParameter("top", "50")
+            .build().toString()
         request(url) { root ->
             val data = root.optJSONObject("data")
             val artist = data?.optJSONObject("artist") ?: root.optJSONObject("artist")
@@ -94,7 +98,12 @@ class NeteaseArtistRepository {
                     else -> "未提供"
                 },
                 description = artist.optString("briefDesc")
-                    .ifBlank { artist.optString("description") }
+                    .ifBlank { artist.optString("description") },
+                hotSongs = root.optJSONArray("hotSongs")?.let { songs ->
+                    (0 until minOf(songs.length(), 50)).mapNotNull { index ->
+                        songs.optJSONObject(index)?.let(::parseTrack)
+                    }
+                }.orEmpty()
             )
         }.onResult(callback)
     }
@@ -126,25 +135,29 @@ class NeteaseArtistRepository {
             val songs = root.optJSONArray("songs")
                 ?: throw IOException("网易云没有返回专辑歌曲")
             (0 until songs.length()).mapNotNull { index ->
-                val song = songs.optJSONObject(index) ?: return@mapNotNull null
-                val songId = song.opt("id")?.toString().orEmpty()
-                if (songId.isBlank() || songId == "null") return@mapNotNull null
-                val album = song.optJSONObject("al") ?: song.optJSONObject("album")
-                val artists = song.optJSONArray("ar") ?: song.optJSONArray("artists")
-                val artistNames = if (artists == null) emptyList() else (0 until artists.length())
-                    .mapNotNull { artists.optJSONObject(it)?.optString("name") }
-                    .filter(String::isNotBlank)
-                Track(
-                    songId, "netease", song.optString("name"),
-                    artistNames.joinToString("、"), album?.optString("name").orEmpty(),
-                    album?.opt("picId")?.toString().orEmpty(), songId
-                ).apply {
-                    picUrl = album?.optString("picUrl").orEmpty()
-                        .replace("http://", "https://")
-                    externalMetadata = true
-                }
+                songs.optJSONObject(index)?.let(::parseTrack)
             }
         }.onResult(callback)
+    }
+
+    private fun parseTrack(song: JSONObject): Track? {
+        val songId = song.opt("id")?.toString().orEmpty()
+        if (songId.isBlank() || songId == "null") return null
+        val album = song.optJSONObject("al") ?: song.optJSONObject("album")
+        val artists = song.optJSONArray("ar") ?: song.optJSONArray("artists")
+        val artistNames = if (artists == null) emptyList() else (0 until artists.length())
+            .mapNotNull { artists.optJSONObject(it)?.optString("name") }
+            .filter(String::isNotBlank)
+        return Track(
+            songId, "netease", song.optString("name"),
+            artistNames.joinToString("、"), album?.optString("name").orEmpty(),
+            album?.opt("pic_str")?.toString()
+                ?: album?.opt("picId")?.toString().orEmpty(), songId
+        ).apply {
+            picUrl = album?.optString("picUrl").orEmpty()
+                .replace("http://", "https://")
+            externalMetadata = true
+        }
     }
 
     private fun <T> request(url: String, parse: (JSONObject) -> T): Pending<T> = Pending { callback ->
