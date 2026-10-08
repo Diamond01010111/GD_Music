@@ -14,6 +14,8 @@ import com.diamond.gdmusic.Track
 import com.diamond.gdmusic.AudioQuality
 import com.diamond.gdmusic.model.supportedMusicSources
 
+val LocalOpenArtistDetail = staticCompositionLocalOf<(String, Track) -> Unit> { { _, _ -> } }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackMoreBottomSheet(
@@ -36,9 +38,11 @@ fun TrackMoreBottomSheet(
         skipPartiallyExpanded = false
     )
     var choosingArtist by remember(track.id) { mutableStateOf(false) }
+    var choosingArtistDetail by remember(track.id) { mutableStateOf(false) }
     var choosingSource by remember(track.id) { mutableStateOf<SourceTarget?>(null) }
     var choosingQuality by remember(track.id) { mutableStateOf(false) }
     val artists = remember(track.artist) { splitArtists(track.artist) }
+    val onOpenArtist = LocalOpenArtistDetail.current
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -137,9 +141,9 @@ fun TrackMoreBottomSheet(
                         )
                     }
                 }
-            } else if (choosingArtist) {
+            } else if (choosingArtist || choosingArtistDetail) {
                 Text(
-                    text = "选择要搜索的歌手",
+                    text = if (choosingArtistDetail) "选择艺人" else "选择要搜索的歌手",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.padding(20.dp)
                 )
@@ -154,7 +158,8 @@ fun TrackMoreBottomSheet(
                                 .fillMaxWidth()
                                 .clickable {
                                     onDismiss()
-                                    onSearchArtist(artist)
+                                    if (choosingArtistDetail) onOpenArtist(artist, track)
+                                    else onSearchArtist(artist)
                                 }
                         )
                     }
@@ -207,6 +212,20 @@ fun TrackMoreBottomSheet(
                         SheetAction("添加到收藏", Icons.Default.FavoriteBorder) {
                             onDismiss()
                             onFavorite(track)
+                        }
+                    }
+                    item {
+                        SheetAction(
+                            "艺人详情",
+                            Icons.Default.AccountCircle,
+                            enabled = artists.isNotEmpty()
+                        ) {
+                            if (artists.size > 1) {
+                                choosingArtistDetail = true
+                            } else {
+                                onDismiss()
+                                artists.firstOrNull()?.let { artist -> onOpenArtist(artist, track) }
+                            }
                         }
                     }
                     item {

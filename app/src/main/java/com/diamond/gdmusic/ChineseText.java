@@ -8,10 +8,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 /** Character folding for metadata matching; original display text is never modified. */
-final class ChineseText {
+public final class ChineseText {
     private static final Map<Integer, String> SIMPLIFIED = load("TSCharacters.txt");
     private static final Map<Integer, String> TRADITIONAL = load("STCharacters.txt");
-    static String simplified(String text) { return convert(text, SIMPLIFIED); }
+    public static String simplified(String text) { return convert(text, SIMPLIFIED); }
     static String traditional(String text) { return convert(text, TRADITIONAL); }
     private static String convert(String text, Map<Integer, String> dictionary) {
         StringBuilder output = new StringBuilder();
