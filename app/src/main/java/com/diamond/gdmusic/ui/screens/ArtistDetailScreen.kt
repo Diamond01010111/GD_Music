@@ -28,6 +28,8 @@ import com.diamond.gdmusic.ui.components.TrackMoreBottomSheet
 @Composable
 fun ArtistDetailScreen(
     artistName: String,
+    referenceSongTitle: String,
+    referenceNeteaseSongId: String?,
     onBack: () -> Unit,
     onPlayAll: (List<Track>, Int) -> Unit,
     onPlayTrack: (Track) -> Unit,
@@ -76,7 +78,9 @@ fun ArtistDetailScreen(
         val request = generation
         loading = true
         error = null
-        repository.findArtist(artistName) { result ->
+        repository.findArtist(
+            artistName, referenceSongTitle, referenceNeteaseSongId
+        ) { result ->
             if (request == generation) {
                 loading = false
                 result.onSuccess {
@@ -86,7 +90,9 @@ fun ArtistDetailScreen(
         }
     }
 
-    LaunchedEffect(artistName) { loadArtist() }
+    LaunchedEffect(artistName, referenceSongTitle, referenceNeteaseSongId) {
+        loadArtist()
+    }
     LaunchedEffect(selectedTab, artist?.id) {
         if (selectedTab == 1 && !albumsRequested) artist?.id?.let(::loadAlbums)
     }
