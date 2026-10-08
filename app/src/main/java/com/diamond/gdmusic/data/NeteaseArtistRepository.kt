@@ -73,7 +73,7 @@ class NeteaseArtistRepository {
     }
 
     fun loadArtist(id: String, callback: (Result<NeteaseArtist>) -> Unit) {
-        val url = "https://music.163.com/api/artist/$id"
+        val url = "https://music.163.com/api/v1/artist/$id"
         request(url) { root ->
             val data = root.optJSONObject("data")
             val artist = data?.optJSONObject("artist") ?: root.optJSONObject("artist")
