@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -74,6 +75,22 @@ import com.diamond.gdmusic.ui.screens.NeteasePlaylistScreen
 import com.diamond.gdmusic.ui.screens.PlayerDetailScreen
 import com.diamond.gdmusic.ui.screens.SearchResultsScreen
 import com.diamond.gdmusic.ui.screens.SearchScreen
+import org.json.JSONObject
+
+private val searchCategorySaver = Saver<SearchCategory, String>(
+    save = { it.name },
+    restore = { saved -> SearchCategory.entries.firstOrNull { it.name == saved } }
+)
+
+private val searchTrackListSaver = listSaver<List<Track>, String>(
+    save = { tracks -> tracks.map(::encodeSearchTrack) },
+    restore = { values -> values.mapNotNull(::decodeSearchTrack) }
+)
+
+private val searchPlaylistListSaver = listSaver<List<NeteasePlaylist>, String>(
+    save = { playlists -> playlists.map(::encodeSearchPlaylist) },
+    restore = { values -> values.mapNotNull(::decodeSearchPlaylist) }
+)
 
 @Composable
 fun MusicApp(
@@ -166,23 +183,23 @@ fun MusicApp(
         if (pendingPlaylistImportCode != null) currentPage = AppPage.FAVORITE
     }
 
-    var resultKeyword by remember {
+    var resultKeyword by rememberSaveable {
         mutableStateOf("")
     }
 
-    var resultCategory by remember {
+    var resultCategory by rememberSaveable(stateSaver = searchCategorySaver) {
         mutableStateOf(SearchCategory.SONG)
     }
 
-    var resultSource by remember {
+    var resultSource by rememberSaveable {
         mutableStateOf("netease")
     }
 
-    var resultTracks by remember {
+    var resultTracks by rememberSaveable(stateSaver = searchTrackListSaver) {
         mutableStateOf<List<Track>>(emptyList())
     }
 
-    var resultPlaylists by remember {
+    var resultPlaylists by rememberSaveable(stateSaver = searchPlaylistListSaver) {
         mutableStateOf<List<NeteasePlaylist>>(emptyList())
     }
 
@@ -194,7 +211,7 @@ fun MusicApp(
         mutableStateOf(false)
     }
 
-    var resultPage by remember {
+    var resultPage by rememberSaveable {
         mutableStateOf(1)
     }
 
@@ -202,7 +219,7 @@ fun MusicApp(
         mutableStateOf(0)
     }
 
-    var hasMoreResults by remember {
+    var hasMoreResults by rememberSaveable {
         mutableStateOf(false)
     }
 
@@ -214,7 +231,7 @@ fun MusicApp(
         mutableStateOf(false)
     }
 
-    var showPlayerDetail by remember {
+    var showPlayerDetail by rememberSaveable {
         mutableStateOf(false)
     }
 
@@ -244,7 +261,7 @@ fun MusicApp(
                         resultTracks = emptyList()
                         resultPlaylists = playlists
                         resultPage = 1
-                        hasMoreResults = playlists.size >= SEARCH_PAGE_SIZE
+                        hasMoreResults = playlists.isNotEmpty()
                         currentPage = AppPage.SEARCH_RESULTS
                     }
                     result.onFailure { error ->
@@ -263,7 +280,7 @@ fun MusicApp(
                         resultTracks = tracks
                         resultPlaylists = emptyList()
                         resultPage = 1
-                        hasMoreResults = tracks.size >= SEARCH_PAGE_SIZE
+                        hasMoreResults = tracks.isNotEmpty()
                         currentPage = AppPage.SEARCH_RESULTS
                     }
                     result.onFailure { error ->
@@ -294,9 +311,11 @@ fun MusicApp(
                 if (!searchChanged()) {
                     isLoadingMore = false
                     result.onSuccess { playlists ->
-                        resultPlaylists = (resultPlaylists + playlists).distinctBy { it.id }
+                        val previousSize = resultPlaylists.size
+                        val merged = (resultPlaylists + playlists).distinctBy { it.id }
+                        resultPlaylists = merged
                         resultPage = nextPage
-                        hasMoreResults = playlists.size >= SEARCH_PAGE_SIZE
+                        hasMoreResults = playlists.isNotEmpty() && merged.size > previousSize
                     }
                     result.onFailure { error ->
                         searchError = error.message ?: "加载下一页失败"
@@ -312,11 +331,16 @@ fun MusicApp(
             if (!searchChanged) {
                 isLoadingMore = false
                 result.onSuccess { tracks ->
-                    resultTracks = (resultTracks + tracks).distinctBy {
+                    val previousSize = resultTracks.size
+                    val merged = (resultTracks + tracks).distinctBy {
                         "${it.source}:${it.id}"
                     }
+                    resultTracks = merged
                     resultPage = nextPage
-                    hasMoreResults = tracks.size >= SEARCH_PAGE_SIZE
+                    // Some album providers return fewer than SEARCH_PAGE_SIZE items even when
+                    // another page exists. Continue while the API returns at least one new item,
+                    // and stop immediately if it repeats a page.
+                    hasMoreResults = tracks.isNotEmpty() && merged.size > previousSize
                 }
 
                 result.onFailure { error ->
@@ -326,8 +350,10 @@ fun MusicApp(
         }
     }
 
-    LaunchedEffect(nowPlayingTrack?.source, nowPlayingTrack?.id) {
-        if (nowPlayingTrack == null) showPlayerDetail = false
+    LaunchedEffect(playbackReady, nowPlayingTrack?.source, nowPlayingTrack?.id) {
+        // During rotation the MediaController reconnects briefly and nowPlayingTrack is null.
+        // Keep the saved detail-page state until the controller is ready and confirms no track.
+        if (playbackReady && nowPlayingTrack == null) showPlayerDetail = false
     }
 
     val showNavigationBar =
@@ -877,4 +903,61 @@ private fun FavoriteSheetCover(
     }
 }
 
-private const val SEARCH_PAGE_SIZE = 30
+
+private fun encodeSearchTrack(track: Track): String = JSONObject()
+    .put("id", track.id.orEmpty())
+    .put("source", track.source.orEmpty())
+    .put("name", track.name.orEmpty())
+    .put("artist", track.artist.orEmpty())
+    .put("album", track.album.orEmpty())
+    .put("picId", track.picId.orEmpty())
+    .put("lyricId", track.lyricId.orEmpty())
+    .put("picUrl", track.picUrl.orEmpty())
+    .put("requestedBitrate", track.requestedBitrate)
+    .put("externalMetadata", track.externalMetadata)
+    .toString()
+
+private fun decodeSearchTrack(value: String): Track? = runCatching {
+    val json = JSONObject(value)
+    val id = json.optString("id")
+    val source = json.optString("source")
+    val name = json.optString("name")
+    val artist = json.optString("artist")
+    if (id.isBlank() || source.isBlank() || name.isBlank() || artist.isBlank()) {
+        return@runCatching null
+    }
+    Track(
+        id,
+        source,
+        name,
+        artist,
+        json.optString("album"),
+        json.optString("picId"),
+        json.optString("lyricId")
+    ).apply {
+        picUrl = json.optString("picUrl")
+        requestedBitrate = json.optInt("requestedBitrate")
+        externalMetadata = json.optBoolean("externalMetadata")
+    }
+}.getOrNull()
+
+private fun encodeSearchPlaylist(playlist: NeteasePlaylist): String = JSONObject()
+    .put("id", playlist.id)
+    .put("name", playlist.name)
+    .put("coverUrl", playlist.coverUrl)
+    .put("trackCount", playlist.trackCount)
+    .put("creatorId", playlist.creatorId)
+    .toString()
+
+private fun decodeSearchPlaylist(value: String): NeteasePlaylist? = runCatching {
+    val json = JSONObject(value)
+    val id = json.optString("id")
+    if (id.isBlank()) return@runCatching null
+    NeteasePlaylist(
+        id = id,
+        name = json.optString("name"),
+        coverUrl = json.optString("coverUrl"),
+        trackCount = json.optInt("trackCount"),
+        creatorId = json.optString("creatorId")
+    )
+}.getOrNull()
