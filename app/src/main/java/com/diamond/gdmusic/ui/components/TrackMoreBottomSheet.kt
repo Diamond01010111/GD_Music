@@ -14,7 +14,7 @@ import com.diamond.gdmusic.Track
 import com.diamond.gdmusic.AudioQuality
 import com.diamond.gdmusic.model.supportedMusicSources
 
-val LocalOpenArtistDetail = staticCompositionLocalOf<(String) -> Unit> { { } }
+val LocalOpenArtistDetail = staticCompositionLocalOf<(String, Track) -> Unit> { { _, _ -> } }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -158,7 +158,7 @@ fun TrackMoreBottomSheet(
                                 .fillMaxWidth()
                                 .clickable {
                                     onDismiss()
-                                    if (choosingArtistDetail) onOpenArtist(artist)
+                                    if (choosingArtistDetail) onOpenArtist(artist, track)
                                     else onSearchArtist(artist)
                                 }
                         )
@@ -224,7 +224,7 @@ fun TrackMoreBottomSheet(
                                 choosingArtistDetail = true
                             } else {
                                 onDismiss()
-                                artists.firstOrNull()?.let(onOpenArtist)
+                                artists.firstOrNull()?.let { artist -> onOpenArtist(artist, track) }
                             }
                         }
                     }
