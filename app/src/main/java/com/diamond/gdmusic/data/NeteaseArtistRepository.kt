@@ -2,6 +2,7 @@ package com.diamond.gdmusic.data
 
 import android.os.Handler
 import android.os.Looper
+import com.diamond.gdmusic.GdMusicApi
 import com.diamond.gdmusic.Track
 import okhttp3.Call
 import okhttp3.Callback
@@ -36,73 +37,76 @@ class NeteaseArtistRepository {
     private val client = OkHttpClient.Builder().callTimeout(20, TimeUnit.SECONDS).build()
     private val handler = Handler(Looper.getMainLooper())
 
-    fun findArtist(name: String, callback: (Result<NeteaseArtist>) -> Unit) {
-        val query = com.diamond.gdmusic.ChineseText.simplified(
-            Normalizer.normalize(name.trim(), Normalizer.Form.NFKC)
-        )
-        if (query.isBlank()) {
-            callback(Result.failure(IllegalArgumentException("艺人名称不能为空")))
+    fun findArtist(
+        name: String,
+        songTitle: String,
+        neteaseSongId: String?,
+        callback: (Result<NeteaseArtist>) -> Unit
+    ) {
+        val artistName = foldChinese(name.trim())
+        if (artistName.isBlank() || songTitle.isBlank()) {
+            callback(Result.failure(IllegalArgumentException("歌曲或艺人名称不能为空")))
             return
         }
 
-        // The public artist-search (type=100) can return no matches even for known artists.
-        // Search songs first and use the artist ID attached to a matching song.
-        val songUrl = searchUrl(query, 1)
-        request(songUrl) { root ->
-            val songs = root.optJSONObject("result")?.optJSONArray("songs")
-                ?: throw IOException("网易云没有返回歌曲搜索结果")
-            val normalized = foldChinese(query)
-            (0 until songs.length()).asSequence()
-                .mapNotNull(songs::optJSONObject)
-                .flatMap { song ->
-                    val artists = song.optJSONArray("ar") ?: song.optJSONArray("artists")
-                    if (artists == null) emptySequence()
-                    else (0 until artists.length()).asSequence()
-                        .mapNotNull(artists::optJSONObject)
-                }
-                .firstOrNull { candidate ->
-                    val names = mutableListOf(candidate.optString("name"))
-                    val aliases = candidate.optJSONArray("alias")
-                        ?: candidate.optJSONArray("alia")
-                    if (aliases != null) for (index in 0 until aliases.length()) {
-                        names.add(aliases.optString(index))
-                    }
-                    names.any { foldChinese(it) == normalized }
-                }?.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
-                ?: throw IOException("歌曲结果中没有精确匹配的艺人")
-        }.onResult { songResult ->
-            songResult.onSuccess { id ->
-                loadArtist(id, callback)
-            }.onFailure {
-                // Some artists have no song in the first search page; try artist search once.
-                request(searchUrl(query, 100)) { root ->
-                    val artists = root.optJSONObject("result")?.optJSONArray("artists")
-                        ?: throw IOException("未找到艺人：$name")
-                    val normalized = foldChinese(query)
-                    (0 until artists.length()).mapNotNull(artists::optJSONObject)
-                        .firstOrNull { candidate ->
-                            val aliases = candidate.optJSONArray("alias")
-                                ?: candidate.optJSONArray("transNames")
-                            foldChinese(candidate.optString("name")) == normalized ||
-                                (aliases != null && (0 until aliases.length()).any { index ->
-                                    foldChinese(aliases.optString(index)) == normalized
-                                })
-                        }?.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
-                        ?: throw IOException("未找到精确匹配的艺人：$name")
-                }.onResult { artistResult ->
-                    artistResult.onSuccess { id -> loadArtist(id, callback) }
-                        .onFailure { callback(Result.failure(it)) }
-                }
+        fun resolveFromSong(songId: String) {
+            val url = "https://music.163.com/api/song/detail/".toHttpUrl().newBuilder()
+                .addQueryParameter("ids", "[$songId]")
+                .build().toString()
+            request(url) { root ->
+                val song = root.optJSONArray("songs")?.optJSONObject(0)
+                    ?: throw IOException("网易云没有返回歌曲详情")
+                val artists = song.optJSONArray("ar") ?: song.optJSONArray("artists")
+                    ?: throw IOException("歌曲没有艺人信息")
+                (0 until artists.length()).mapNotNull(artists::optJSONObject)
+                    .firstOrNull { candidate ->
+                        val names = mutableListOf(candidate.optString("name"))
+                        val aliases = candidate.optJSONArray("alias")
+                            ?: candidate.optJSONArray("alia")
+                        if (aliases != null) for (index in 0 until aliases.length()) {
+                            names.add(aliases.optString(index))
+                        }
+                        names.any { foldChinese(it) == artistName }
+                    }?.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+                    ?: throw IOException("歌曲中未找到艺人：$name")
+            }.onResult { result ->
+                result.onSuccess { id -> loadArtist(id, callback) }
+                    .onFailure { callback(Result.failure(it)) }
             }
         }
-    }
 
-    private fun searchUrl(query: String, type: Int): String =
-        "https://music.163.com/api/search/get".toHttpUrl().newBuilder()
-            .addQueryParameter("s", query)
-            .addQueryParameter("type", type.toString())
-            .addQueryParameter("limit", "100")
-            .build().toString()
+        if (neteaseSongId?.all(Char::isDigit) == true) {
+            resolveFromSong(neteaseSongId)
+            return
+        }
+
+        // Other sources have different song IDs. Ask the existing GD NetEase search for an ID;
+        // only accept a song whose title and artist both match the selected track.
+        GdMusicApi().searchTracks(songTitle, "netease", 15, 1,
+            object : GdMusicApi.SearchCallback {
+                override fun onSuccess(tracks: List<Track>) {
+                    val title = foldChinese(songTitle)
+                    val match = tracks.firstOrNull { track ->
+                        foldChinese(track.name) == title &&
+                            track.artist.split(Regex("[、,，/&]")).any { artist ->
+                                foldChinese(artist.trim()) == artistName
+                            }
+                    }
+                    if (match == null) {
+                        handler.post {
+                            callback(Result.failure(IOException("网易云中未找到匹配的艺人歌曲")))
+                        }
+                    } else {
+                        resolveFromSong(match.id)
+                    }
+                }
+
+                override fun onError(error: Exception) {
+                    handler.post { callback(Result.failure(error)) }
+                }
+            }
+        )
+    }
 
     fun loadArtist(id: String, callback: (Result<NeteaseArtist>) -> Unit) {
         val url = "https://music.163.com/api/v1/artist/$id".toHttpUrl().newBuilder()
