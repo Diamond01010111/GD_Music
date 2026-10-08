@@ -44,34 +44,65 @@ class NeteaseArtistRepository {
             callback(Result.failure(IllegalArgumentException("艺人名称不能为空")))
             return
         }
-        val url = "https://music.163.com/api/search/get".toHttpUrl().newBuilder()
-            .addQueryParameter("s", query)
-            .addQueryParameter("type", "100")
-            .addQueryParameter("limit", "30")
-            .build().toString()
-        request(url) { root ->
-            val items = root.optJSONObject("result")?.optJSONArray("artists")
-                ?: throw IOException("未找到艺人")
+
+        // The public artist-search (type=100) can return no matches even for known artists.
+        // Search songs first and use the artist ID attached to a matching song.
+        val songUrl = searchUrl(query, 1)
+        request(songUrl) { root ->
+            val songs = root.optJSONObject("result")?.optJSONArray("songs")
+                ?: throw IOException("网易云没有返回歌曲搜索结果")
             val normalized = foldChinese(query)
-            val matched = (0 until items.length()).mapNotNull(items::optJSONObject)
+            (0 until songs.length()).asSequence()
+                .mapNotNull(songs::optJSONObject)
+                .flatMap { song ->
+                    val artists = song.optJSONArray("ar") ?: song.optJSONArray("artists")
+                    if (artists == null) emptySequence()
+                    else (0 until artists.length()).asSequence()
+                        .mapNotNull(artists::optJSONObject)
+                }
                 .firstOrNull { candidate ->
-                    val names = buildList {
-                        add(candidate.optString("name"))
-                        val aliases = candidate.optJSONArray("alias")
-                            ?: candidate.optJSONArray("transNames")
-                        if (aliases != null) for (i in 0 until aliases.length()) {
-                            add(aliases.optString(i))
-                        }
+                    val names = mutableListOf(candidate.optString("name"))
+                    val aliases = candidate.optJSONArray("alias")
+                        ?: candidate.optJSONArray("alia")
+                    if (aliases != null) for (index in 0 until aliases.length()) {
+                        names.add(aliases.optString(index))
                     }
                     names.any { foldChinese(it) == normalized }
-                } ?: throw IOException("未找到精确匹配的艺人：$name")
-            matched.opt("id")?.toString()?.takeIf { it != "null" && it.isNotBlank() }
-                ?: throw IOException("艺人缺少 ID")
-        }.onResult { result ->
-            result.onSuccess { id -> loadArtist(id, callback) }
-                .onFailure { callback(Result.failure(it)) }
+                }?.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+                ?: throw IOException("歌曲结果中没有精确匹配的艺人")
+        }.onResult { songResult ->
+            songResult.onSuccess { id ->
+                loadArtist(id, callback)
+            }.onFailure {
+                // Some artists have no song in the first search page; try artist search once.
+                request(searchUrl(query, 100)) { root ->
+                    val artists = root.optJSONObject("result")?.optJSONArray("artists")
+                        ?: throw IOException("未找到艺人：$name")
+                    val normalized = foldChinese(query)
+                    (0 until artists.length()).mapNotNull(artists::optJSONObject)
+                        .firstOrNull { candidate ->
+                            val aliases = candidate.optJSONArray("alias")
+                                ?: candidate.optJSONArray("transNames")
+                            foldChinese(candidate.optString("name")) == normalized ||
+                                (aliases != null && (0 until aliases.length()).any { index ->
+                                    foldChinese(aliases.optString(index)) == normalized
+                                })
+                        }?.opt("id")?.toString()?.takeIf { it.isNotBlank() && it != "null" }
+                        ?: throw IOException("未找到精确匹配的艺人：$name")
+                }.onResult { artistResult ->
+                    artistResult.onSuccess { id -> loadArtist(id, callback) }
+                        .onFailure { callback(Result.failure(it)) }
+                }
+            }
         }
     }
+
+    private fun searchUrl(query: String, type: Int): String =
+        "https://music.163.com/api/search/get".toHttpUrl().newBuilder()
+            .addQueryParameter("s", query)
+            .addQueryParameter("type", type.toString())
+            .addQueryParameter("limit", "100")
+            .build().toString()
 
     fun loadArtist(id: String, callback: (Result<NeteaseArtist>) -> Unit) {
         val url = "https://music.163.com/api/v1/artist/$id".toHttpUrl().newBuilder()
