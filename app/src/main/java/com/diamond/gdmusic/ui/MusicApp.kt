@@ -241,6 +241,8 @@ fun MusicApp(
     }
 
     var openArtistName by rememberSaveable { mutableStateOf<String?>(null) }
+    var artistReferenceTitle by rememberSaveable { mutableStateOf("") }
+    var artistReferenceNeteaseId by rememberSaveable { mutableStateOf<String?>(null) }
 
     var pendingFavoriteTrack by remember {
         mutableStateOf<Track?>(null)
@@ -386,7 +388,12 @@ fun MusicApp(
     }
 
     CompositionLocalProvider(
-        LocalOpenArtistDetail provides { name -> openArtistName = name }
+        LocalOpenArtistDetail provides { name, track ->
+            artistReferenceTitle = track.name
+            artistReferenceNeteaseId =
+                track.id.takeIf { track.source == "netease" && it.all(Char::isDigit) }
+            openArtistName = name
+        }
     ) {
     Scaffold(
         snackbarHost = { SnackbarHost(sourceSnackbar) },
@@ -772,6 +779,8 @@ fun MusicApp(
                 androidx.compose.material3.Surface(Modifier.fillMaxSize()) {
                     ArtistDetailScreen(
                         artistName = name,
+                        referenceSongTitle = artistReferenceTitle,
+                        referenceNeteaseSongId = artistReferenceNeteaseId,
                         onBack = { openArtistName = null },
                         onPlayAll = onPlayResults,
                         onPlayTrack = { track ->
