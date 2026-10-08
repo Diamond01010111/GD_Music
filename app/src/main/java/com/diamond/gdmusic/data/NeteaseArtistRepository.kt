@@ -87,7 +87,12 @@ class NeteaseArtistRepository {
                 aliases = names,
                 coverUrl = artist.optString("cover").ifBlank { artist.optString("picUrl") }
                     .replace("http://", "https://"),
-                coverType = artist.optString("type").ifBlank { "艺人封面" },
+                coverType = when (artist.optInt("type", 0)) {
+                    1 -> "男歌手"
+                    2 -> "女歌手"
+                    3 -> "乐队组合"
+                    else -> "未提供"
+                },
                 description = artist.optString("briefDesc")
                     .ifBlank { artist.optString("description") }
             )
