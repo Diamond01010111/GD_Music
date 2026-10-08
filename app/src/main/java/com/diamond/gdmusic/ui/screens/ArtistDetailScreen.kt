@@ -130,20 +130,6 @@ fun ArtistDetailScreen(
                 else artist?.id?.let(::loadAlbums)
             }) { Text("重试") }
         }
-        if (selectedAlbum == null && artist != null) {
-            TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("热门歌曲") }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("专辑") }
-                )
-            }
-        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -167,6 +153,20 @@ fun ArtistDetailScreen(
                                 modifier = Modifier.padding(top = 16.dp)
                             )
                         }
+                    }
+                }
+                if (artist != null) item {
+                    TabRow(selectedTabIndex = selectedTab) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("热门歌曲") }
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("专辑") }
+                        )
                     }
                 }
                 if (selectedTab == 0) {
