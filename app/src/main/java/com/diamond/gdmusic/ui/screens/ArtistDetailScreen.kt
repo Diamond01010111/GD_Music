@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,12 +48,15 @@ fun ArtistDetailScreen(
     var error by remember(artistName) { mutableStateOf<String?>(null) }
     var moreAlbums by remember(artistName) { mutableStateOf(false) }
     var offset by remember(artistName) { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable(artistName) { mutableIntStateOf(0) }
+    var albumsRequested by remember(artistName) { mutableStateOf(false) }
     var generation by remember(artistName) { mutableIntStateOf(0) }
 
     fun loadAlbums(id: String) {
         if (loadingAlbums || (offset > 0 && !moreAlbums)) return
         error = null
         loadingAlbums = true
+        albumsRequested = true
         val request = generation
         repository.loadAlbums(id, offset) { result ->
             if (request == generation) {
@@ -77,13 +81,15 @@ fun ArtistDetailScreen(
                 loading = false
                 result.onSuccess {
                     artist = it
-                    loadAlbums(it.id)
                 }.onFailure { error = it.message ?: "加载艺人失败" }
             }
         }
     }
 
     LaunchedEffect(artistName) { loadArtist() }
+    LaunchedEffect(selectedTab, artist?.id) {
+        if (selectedTab == 1 && !albumsRequested) artist?.id?.let(::loadAlbums)
+    }
     fun loadAlbumTracks(album: NeteaseAlbum) {
         tracks = emptyList()
         loadingTracks = true
@@ -124,6 +130,20 @@ fun ArtistDetailScreen(
                 else artist?.id?.let(::loadAlbums)
             }) { Text("重试") }
         }
+        if (selectedAlbum == null && artist != null) {
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("热门歌曲") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("专辑") }
+                )
+            }
+        }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -141,26 +161,61 @@ fun ArtistDetailScreen(
                             Text("别名：${info.aliases.ifEmpty { listOf("暂无") }.joinToString("、")}")
                             Text("艺人类型：${info.coverType}")
                             Text(info.description.ifBlank { "暂无简介" })
-                            Text("专辑", style = MaterialTheme.typography.titleLarge,
-                                modifier = Modifier.padding(top = 16.dp))
+                            Text(
+                                if (selectedTab == 0) "热门歌曲（前${info.hotSongs.size}首）" else "专辑",
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.padding(top = 16.dp)
+                            )
                         }
                     }
                 }
-                items(albums, key = { it.id }) { album ->
-                    ListItem(
-                        headlineContent = { Text(album.name) },
-                        supportingContent = { Text("${album.songCount} 首歌曲") },
-                        leadingContent = {
-                            if (album.coverUrl.isNotBlank()) AsyncImage(album.coverUrl, album.name,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp)))
-                        },
-                        modifier = Modifier.clickable { selectedAlbum = album }
-                    )
-                }
-                if (loadingAlbums) item { CircularProgressIndicator() }
-                if (moreAlbums && !loadingAlbums) item {
-                    TextButton(onClick = { artist?.id?.let(::loadAlbums) }) { Text("加载更多专辑") }
+                if (selectedTab == 0) {
+                    artist?.hotSongs?.let { hotSongs ->
+                        if (hotSongs.isNotEmpty()) item {
+                            Button(onClick = { onPlayAll(hotSongs, 0) }) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Text("播放全部")
+                            }
+                        }
+                        items(hotSongs, key = { "hot-${it.id}" }) { track ->
+                            ListItem(
+                                headlineContent = { Text(track.name) },
+                                supportingContent = { Text(track.artist) },
+                                trailingContent = {
+                                    IconButton(onClick = { moreTrack = track }) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "更多")
+                                    }
+                                },
+                                modifier = Modifier.clickable { onPlayTrack(track) }
+                            )
+                        }
+                        if (hotSongs.isEmpty() && !loading) item {
+                            Text("暂无热门歌曲", modifier = Modifier.padding(16.dp))
+                        }
+                    }
+                } else {
+                    items(albums, key = { it.id }) { album ->
+                        ListItem(
+                            headlineContent = { Text(album.name) },
+                            supportingContent = {
+                                if (album.songCount > 0) Text("${album.songCount} 首歌曲")
+                            },
+                            leadingContent = {
+                                if (album.coverUrl.isNotBlank()) AsyncImage(
+                                    album.coverUrl, album.name,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(56.dp).clip(RoundedCornerShape(6.dp))
+                                )
+                            },
+                            modifier = Modifier.clickable { selectedAlbum = album }
+                        )
+                    }
+                    if (loadingAlbums) item { CircularProgressIndicator() }
+                    if (moreAlbums && !loadingAlbums) item {
+                        TextButton(onClick = { artist?.id?.let(::loadAlbums) }) {
+                            Text("加载更多专辑")
+                        }
+                    }
                 }
             } else {
                 if (tracks.isNotEmpty()) item {
