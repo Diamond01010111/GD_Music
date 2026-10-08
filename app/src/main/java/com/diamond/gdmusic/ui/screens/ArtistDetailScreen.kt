@@ -139,7 +139,7 @@ fun ArtistDetailScreen(
                             }
                             Text(info.name, style = MaterialTheme.typography.headlineMedium)
                             Text("别名：${info.aliases.ifEmpty { listOf("暂无") }.joinToString("、")}")
-                            Text("封面类型：${info.coverType}")
+                            Text("艺人类型：${info.coverType}")
                             Text(info.description.ifBlank { "暂无简介" })
                             Text("专辑", style = MaterialTheme.typography.titleLarge,
                                 modifier = Modifier.padding(top = 16.dp))
